@@ -705,8 +705,8 @@ export function ConfigVisualizer() {
                 { label: 'Health Checks', value: state.healthChecks.size, icon: Activity, color: 'text-rose-400' },
                 { label: 'WAF Policies', value: state.wafPolicies.size, icon: Shield, color: 'text-amber-400' },
                 { label: 'Service Policies', value: state.servicePolicies.size, icon: FileText, color: 'text-teal-400' },
-                { label: 'Bot Defense', value: spec?.bot_defense ? 'On' : 'Off', icon: Bot, color: spec?.bot_defense ? 'text-emerald-400' : 'text-slate-500' },
-                { label: 'API Discovery', value: spec?.enable_api_discovery ? 'On' : 'Off', icon: Search, color: spec?.enable_api_discovery ? 'text-emerald-400' : 'text-slate-500' },
+                { label: 'WAF Exclusions', value: spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length || 0, icon: ShieldOff, color: (spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length) ? 'text-amber-400' : 'text-slate-500' },
+                { label: 'Trusted Clients', value: spec?.trusted_clients?.length || 0, icon: User, color: spec?.trusted_clients?.length ? 'text-emerald-400' : 'text-slate-500' },
               ].map(stat => (
                 <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
                   <div className={`w-7 h-7 mb-1.5 ${stat.color}`}>
@@ -1003,6 +1003,143 @@ export function ConfigVisualizer() {
                 </div>
               </section>
             )}
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('tls')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Lock className="w-5 h-5 text-amber-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">TLS & Certificate Configuration</h2>
+                </div>
+                {expandedSections.has('tls') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('tls') && (
+                <div className="p-6 space-y-6">
+                  {!spec?.https_auto_cert && !spec?.https ? (
+                    <div className="flex items-center gap-3 text-slate-500">
+                      <ShieldOff className="w-5 h-5" />
+                      <span>HTTP only - No TLS configured</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        <DetailItem
+                          label="TLS Type"
+                          value={spec?.https_auto_cert ? "Auto Certificate (Let's Encrypt)" : 'Custom Certificate'}
+                        />
+                        <DetailItem
+                          label="Min TLS Version"
+                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.min_version || 'TLS 1.0'}
+                        />
+                        <DetailItem
+                          label="Max TLS Version"
+                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.max_version || 'TLS 1.3'}
+                        />
+                        <DetailItem
+                          label="mTLS"
+                          value={(spec?.https_auto_cert || spec?.https)?.mtls ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.mtls}
+                        />
+                        <DetailItem
+                          label="HTTP Redirect"
+                          value={(spec?.https_auto_cert || spec?.https)?.http_redirect ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.http_redirect}
+                        />
+                        <DetailItem
+                          label="HSTS"
+                          value={(spec?.https_auto_cert || spec?.https)?.add_hsts ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.add_hsts}
+                        />
+                      </div>
+
+                      {(() => {
+                        const tlsConfig = spec?.https_auto_cert || spec?.https;
+                        const certificates = tlsConfig?.tls_certificates || tlsConfig?.tls_config?.tls_certificates;
+
+                        if (!certificates?.length) return null;
+
+                        return (
+                          <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                            <div className="flex items-center gap-3 mb-4">
+                              <Lock className="w-6 h-6 text-amber-400" />
+                              <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
+                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                {certificates.length} certificate{certificates.length !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <div className="space-y-4">
+                              {certificates.map((cert, i) => {
+                                const certInfo = cert.certificate_url ? formatCertificateUrl(cert.certificate_url) : null;
+                                return (
+                                  <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <Lock className="w-4 h-4 text-amber-400" />
+                                        <span className="text-slate-200 font-medium">Certificate {i + 1}</span>
+                                        {certInfo && (
+                                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                            {certInfo.type}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                      {cert.description && (
+                                        <DetailItem label="Description" value={cert.description} small />
+                                      )}
+                                      {certInfo && (
+                                        <DetailItem label="Location" value={certInfo.location.length > 40 ? certInfo.location.substring(0, 40) + '...' : certInfo.location} small />
+                                      )}
+                                      {cert.private_key?.blindfold_secret_info && (
+                                        <DetailItem label="Private Key" value="Blindfolded" small />
+                                      )}
+                                      {cert.private_key?.clear_secret_info && (
+                                        <DetailItem label="Private Key" value={cert.private_key.clear_secret_info.provider || 'Clear'} small />
+                                      )}
+                                      {cert.custom_hash_algorithms?.length && (
+                                        <DetailItem label="Hash Algorithms" value={cert.custom_hash_algorithms.join(', ')} small />
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {(() => {
+                        const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config;
+                        if (!tlsConfig?.cipher_suites?.length) return null;
+
+                        return (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Cipher Suites ({tlsConfig.cipher_suites.length})</span>
+                            <div className="flex flex-wrap gap-2">
+                              {tlsConfig.cipher_suites.map((cipher, i) => (
+                                <span key={i} className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 font-mono">
+                                  {cipher}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <button
+                        onClick={() => setJsonModal({ title: 'TLS Configuration', data: spec?.https || spec?.https_auto_cert })}
+                        className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                      >
+                        <Code className="w-4 h-4" /> View Full TLS Config JSON
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
 
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
               <button
@@ -2639,142 +2776,72 @@ export function ConfigVisualizer() {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-            </section>
 
-            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-              <button
-                onClick={() => toggleSection('tls')}
-                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Lock className="w-5 h-5 text-amber-400" />
-                  <h2 className="text-lg font-semibold text-slate-100">TLS & Certificate Configuration</h2>
-                </div>
-                {expandedSections.has('tls') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-              </button>
-
-              {expandedSections.has('tls') && (
-                <div className="p-6 space-y-6">
-                  {!spec?.https_auto_cert && !spec?.https ? (
-                    <div className="flex items-center gap-3 text-slate-500">
-                      <ShieldOff className="w-5 h-5" />
-                      <span>HTTP only - No TLS configured</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        <DetailItem
-                          label="TLS Type"
-                          value={spec?.https_auto_cert ? "Auto Certificate (Let's Encrypt)" : 'Custom Certificate'}
-                        />
-                        <DetailItem
-                          label="Min TLS Version"
-                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.min_version || 'TLS 1.0'}
-                        />
-                        <DetailItem
-                          label="Max TLS Version"
-                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.max_version || 'TLS 1.3'}
-                        />
-                        <DetailItem
-                          label="mTLS"
-                          value={(spec?.https_auto_cert || spec?.https)?.mtls ? 'Enabled' : 'Disabled'}
-                          enabled={(spec?.https_auto_cert || spec?.https)?.mtls}
-                        />
-                        <DetailItem
-                          label="HTTP Redirect"
-                          value={(spec?.https_auto_cert || spec?.https)?.http_redirect ? 'Enabled' : 'Disabled'}
-                          enabled={(spec?.https_auto_cert || spec?.https)?.http_redirect}
-                        />
-                        <DetailItem
-                          label="HSTS"
-                          value={(spec?.https_auto_cert || spec?.https)?.add_hsts ? 'Enabled' : 'Disabled'}
-                          enabled={(spec?.https_auto_cert || spec?.https)?.add_hsts}
-                        />
+                  {spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules && spec.waf_exclusion.waf_exclusion_inline_rules.rules.length > 0 && (
+                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <ShieldOff className="w-6 h-6 text-amber-400" />
+                        <h3 className="text-lg font-semibold text-slate-200">WAF Exclusion Rules</h3>
+                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                          {spec.waf_exclusion.waf_exclusion_inline_rules.rules.length} rule{spec.waf_exclusion.waf_exclusion_inline_rules.rules.length !== 1 ? 's' : ''}
+                        </span>
                       </div>
-
-                      {(() => {
-                        const tlsConfig = spec?.https_auto_cert || spec?.https;
-                        const certificates = tlsConfig?.tls_certificates || tlsConfig?.tls_config?.tls_certificates;
-
-                        if (!certificates?.length) return null;
-
-                        return (
-                          <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
-                            <div className="flex items-center gap-3 mb-4">
-                              <Lock className="w-6 h-6 text-amber-400" />
-                              <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
-                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                                {certificates.length} certificate{certificates.length !== 1 ? 's' : ''}
-                              </span>
+                      <div className="space-y-3">
+                        {(spec.waf_exclusion.waf_exclusion_inline_rules.rules as Array<{
+                          metadata?: { name?: string; disable?: boolean };
+                          any_domain?: unknown;
+                          exact_domain?: string;
+                          path_prefix?: string;
+                          path_regex?: string;
+                          methods?: string[];
+                          app_firewall_detection_control?: {
+                            exclude_signature_contexts?: Array<{ signature_id?: number; context?: string }>;
+                            exclude_attack_type_contexts?: Array<{ exclude_attack_type?: string; context?: string }>;
+                            exclude_violation_contexts?: Array<{ violation_type?: string; context?: string }>;
+                          };
+                        }>).map((rule, idx) => (
+                          <div key={idx} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-200 font-medium">{rule.metadata?.name || `Rule ${idx + 1}`}</span>
+                                {rule.metadata?.disable && (
+                                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {rule.methods && (
+                                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                    {rule.methods.join(', ')}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="space-y-4">
-                              {certificates.map((cert, i) => {
-                                const certInfo = cert.certificate_url ? formatCertificateUrl(cert.certificate_url) : null;
-                                return (
-                                  <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <div className="flex items-center gap-2">
-                                        <Lock className="w-4 h-4 text-amber-400" />
-                                        <span className="text-slate-200 font-medium">Certificate {i + 1}</span>
-                                        {certInfo && (
-                                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                                            {certInfo.type}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                      {cert.description && (
-                                        <DetailItem label="Description" value={cert.description} small />
-                                      )}
-                                      {certInfo && (
-                                        <DetailItem label="Location" value={certInfo.location.length > 40 ? certInfo.location.substring(0, 40) + '...' : certInfo.location} small />
-                                      )}
-                                      {cert.private_key?.blindfold_secret_info && (
-                                        <DetailItem label="Private Key" value="Blindfolded" small />
-                                      )}
-                                      {cert.private_key?.clear_secret_info && (
-                                        <DetailItem label="Private Key" value={cert.private_key.clear_secret_info.provider || 'Clear'} small />
-                                      )}
-                                      {cert.custom_hash_algorithms?.length && (
-                                        <DetailItem label="Hash Algorithms" value={cert.custom_hash_algorithms.join(', ')} small />
-                                      )}
-                                    </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              <div>
+                                <span className="text-xs text-slate-500 block">Domain</span>
+                                <span className="text-slate-300">{rule.any_domain ? 'Any' : rule.exact_domain || 'N/A'}</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-slate-500 block">Path</span>
+                                <code className="text-slate-300">{rule.path_prefix || rule.path_regex || '/'}</code>
+                              </div>
+                              {rule.app_firewall_detection_control?.exclude_attack_type_contexts && rule.app_firewall_detection_control.exclude_attack_type_contexts.length > 0 && (
+                                <div className="col-span-2">
+                                  <span className="text-xs text-slate-500 block mb-1">Excluded Attack Types</span>
+                                  <div className="flex flex-wrap gap-1">
+                                    {rule.app_firewall_detection_control.exclude_attack_type_contexts.map((ctx, ctxIdx) => (
+                                      <span key={ctxIdx} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                        {ctx.exclude_attack_type?.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
+                                      </span>
+                                    ))}
                                   </div>
-                                );
-                              })}
+                                </div>
+                              )}
                             </div>
                           </div>
-                        );
-                      })()}
-
-                      {(() => {
-                        const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config;
-                        if (!tlsConfig?.cipher_suites?.length) return null;
-
-                        return (
-                          <div className="p-4 bg-slate-700/30 rounded-lg">
-                            <span className="text-xs text-slate-500 block mb-3">Cipher Suites ({tlsConfig.cipher_suites.length})</span>
-                            <div className="flex flex-wrap gap-2">
-                              {tlsConfig.cipher_suites.map((cipher, i) => (
-                                <span key={i} className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 font-mono">
-                                  {cipher}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      <button
-                        onClick={() => setJsonModal({ title: 'TLS Configuration', data: spec?.https || spec?.https_auto_cert })}
-                        className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
-                      >
-                        <Code className="w-4 h-4" /> View Full TLS Config JSON
-                      </button>
-                    </>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -3216,82 +3283,6 @@ export function ConfigVisualizer() {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules && spec.waf_exclusion.waf_exclusion_inline_rules.rules.length > 0 && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                <button
-                  onClick={() => toggleSection('wafexclusion')}
-                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <ShieldOff className="w-5 h-5 text-amber-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">WAF Exclusion Rules</h2>
-                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                      {spec.waf_exclusion.waf_exclusion_inline_rules.rules.length} rule{spec.waf_exclusion.waf_exclusion_inline_rules.rules.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  {expandedSections.has('wafexclusion') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-                </button>
-
-                {expandedSections.has('wafexclusion') && (
-                  <div className="p-6 space-y-3">
-                    {(spec.waf_exclusion.waf_exclusion_inline_rules.rules as Array<{
-                      metadata?: { name?: string; disable?: boolean };
-                      any_domain?: unknown;
-                      exact_domain?: string;
-                      path_prefix?: string;
-                      path_regex?: string;
-                      methods?: string[];
-                      app_firewall_detection_control?: {
-                        exclude_signature_contexts?: Array<{ signature_id?: number; context?: string }>;
-                        exclude_attack_type_contexts?: Array<{ exclude_attack_type?: string; context?: string }>;
-                        exclude_violation_contexts?: Array<{ violation_type?: string; context?: string }>;
-                      };
-                    }>).map((rule, idx) => (
-                      <div key={idx} className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-200 font-medium">{rule.metadata?.name || `Rule ${idx + 1}`}</span>
-                            {rule.metadata?.disable && (
-                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {rule.methods && (
-                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                                {rule.methods.join(', ')}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                          <div>
-                            <span className="text-xs text-slate-500 block">Domain</span>
-                            <span className="text-slate-300">{rule.any_domain ? 'Any' : rule.exact_domain || 'N/A'}</span>
-                          </div>
-                          <div>
-                            <span className="text-xs text-slate-500 block">Path</span>
-                            <code className="text-slate-300">{rule.path_prefix || rule.path_regex || '/'}</code>
-                          </div>
-                          {rule.app_firewall_detection_control?.exclude_attack_type_contexts && rule.app_firewall_detection_control.exclude_attack_type_contexts.length > 0 && (
-                            <div className="col-span-2">
-                              <span className="text-xs text-slate-500 block mb-1">Excluded Attack Types</span>
-                              <div className="flex flex-wrap gap-1">
-                                {rule.app_firewall_detection_control.exclude_attack_type_contexts.map((ctx, ctxIdx) => (
-                                  <span key={ctxIdx} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">
-                                    {ctx.exclude_attack_type?.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 )}
               </section>
