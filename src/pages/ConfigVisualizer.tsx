@@ -1443,7 +1443,7 @@ export function ConfigVisualizer() {
                         originType = 'Public DNS';
                         poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.public_name?.dns_name || '' }));
                       } else if (first.private_ip) {
-                        originType = 'Private IP';
+                        originType = 'IP';
                         poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.private_ip?.ip || '' }));
                       } else if (first.private_name) {
                         originType = 'Private DNS';
