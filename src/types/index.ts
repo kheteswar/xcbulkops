@@ -968,6 +968,35 @@ export interface AppSettingSpec {
   };
 }
 
+export interface UserIdentificationPolicy {
+  name: string;
+  metadata?: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    description?: string;
+    disable?: boolean;
+  };
+  spec?: UserIdentificationPolicySpec;
+  get_spec?: UserIdentificationPolicySpec;
+}
+
+export interface UserIdentificationPolicySpec {
+  rules?: UserIdentificationRule[];
+}
+
+export interface UserIdentificationRule {
+  client_identifier?: {
+    ip_and_tls_fingerprint?: unknown;
+    client_ip?: unknown;
+    tls_fingerprint?: unknown;
+    http_header?: { name?: string };
+    http_cookie?: { name?: string };
+    none?: unknown;
+  };
+}
+
 export interface AppTypeSetting {
   app_type_ref?: ObjectRef;
   business_logic_markup_setting?: {

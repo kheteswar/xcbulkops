@@ -1,4 +1,4 @@
-import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite } from '../types';
+import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -102,6 +102,10 @@ class F5XCApiClient {
 
   async getVirtualSite(namespace: string, name: string): Promise<VirtualSite> {
     return this.get(`/api/config/namespaces/${namespace}/virtual_sites/${name}`);
+  }
+
+  async getUserIdentificationPolicy(namespace: string, name: string): Promise<UserIdentificationPolicy> {
+    return this.get(`/api/config/namespaces/${namespace}/user_identifications/${name}`);
   }
 }
 

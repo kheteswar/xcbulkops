@@ -15,6 +15,7 @@ import {
   Network,
   Eye,
   Code,
+  Code2,
   ExternalLink,
   Check,
   Copy,
@@ -42,7 +43,7 @@ import {
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite } from '../types';
+import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
 
 const FEATURE_TYPE_NAMES: Record<string, string> = {
@@ -69,6 +70,7 @@ interface ViewerState {
   appType: AppType | null;
   appSetting: AppSetting | null;
   appTypeSetting: AppTypeSetting | null;
+  userIdentificationPolicy: UserIdentificationPolicy | null;
 }
 
 export function ConfigVisualizer() {
@@ -99,6 +101,7 @@ export function ConfigVisualizer() {
     appType: null,
     appSetting: null,
     appTypeSetting: null,
+    userIdentificationPolicy: null,
   });
 
   const [jsonModal, setJsonModal] = useState<{ title: string; data: unknown } | null>(null);
@@ -263,6 +266,7 @@ export function ConfigVisualizer() {
       appType: null,
       appSetting: null,
       appTypeSetting: null,
+      userIdentificationPolicy: null,
     });
 
     try {
@@ -449,6 +453,22 @@ export function ConfigVisualizer() {
         }
       }
 
+      let userIdentificationPolicy: UserIdentificationPolicy | null = null;
+      if (lb.spec?.user_identification?.name) {
+        const userIdName = lb.spec.user_identification.name;
+        const userIdNs = lb.spec.user_identification.namespace || selectedNs;
+        log(`Fetching User Identification Policy: ${userIdName}`);
+        try {
+          userIdentificationPolicy = await apiClient.getUserIdentificationPolicy(userIdNs, userIdName);
+        } catch {
+          try {
+            userIdentificationPolicy = await apiClient.getUserIdentificationPolicy('shared', userIdName);
+          } catch {
+            log(`Could not fetch User Identification Policy: ${userIdName}`);
+          }
+        }
+      }
+
       log('Generating report...');
       setState(prev => ({
         ...prev,
@@ -462,6 +482,7 @@ export function ConfigVisualizer() {
         appType,
         appSetting,
         appTypeSetting,
+        userIdentificationPolicy,
       }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load');
@@ -2649,12 +2670,79 @@ export function ConfigVisualizer() {
                       value={spec?.bot_defense?.policy?.name || (spec?.bot_defense ? 'Enabled' : 'Not configured')}
                       details={spec?.bot_defense?.regional_endpoint ? `Endpoint: ${spec.bot_defense.regional_endpoint}` : undefined}
                     />
-                    <SecurityFeatureCard
-                      icon={User}
-                      name="User Identification"
-                      enabled={!!spec?.user_identification}
-                      value={spec?.user_identification?.name || 'Not configured'}
-                    />
+                    {spec?.user_identification ? (
+                      <div className="p-4 rounded-xl border bg-emerald-500/5 border-emerald-500/20">
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400">
+                            <User className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-medium text-slate-300">User Identification</h3>
+                              {state.userIdentificationPolicy && (
+                                <button
+                                  onClick={() => setJsonModal({ title: `User Identification: ${spec.user_identification?.name}`, data: state.userIdentificationPolicy })}
+                                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                                >
+                                  <Code2 className="w-3 h-3" />
+                                  JSON
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                              <span className="text-sm text-slate-200">{spec.user_identification.name}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {state.userIdentificationPolicy && (() => {
+                          const policySpec = state.userIdentificationPolicy.spec || state.userIdentificationPolicy.get_spec;
+                          const rules = policySpec?.rules || [];
+                          if (rules.length === 0) return null;
+                          return (
+                            <div className="mt-3 pt-3 border-t border-slate-700/50">
+                              <span className="text-xs text-slate-500 block mb-2">Identification Rules ({rules.length})</span>
+                              <div className="space-y-1.5">
+                                {rules.map((rule, idx) => {
+                                  const identifier = rule.client_identifier;
+                                  let idType = 'Unknown';
+                                  let idDetail = '';
+                                  if (identifier?.ip_and_tls_fingerprint !== undefined) {
+                                    idType = 'IP + TLS Fingerprint';
+                                  } else if (identifier?.client_ip !== undefined) {
+                                    idType = 'Client IP';
+                                  } else if (identifier?.tls_fingerprint !== undefined) {
+                                    idType = 'TLS Fingerprint';
+                                  } else if (identifier?.http_header) {
+                                    idType = 'HTTP Header';
+                                    idDetail = identifier.http_header.name || '';
+                                  } else if (identifier?.http_cookie) {
+                                    idType = 'HTTP Cookie';
+                                    idDetail = identifier.http_cookie.name || '';
+                                  } else if (identifier?.none !== undefined) {
+                                    idType = 'None';
+                                  }
+                                  return (
+                                    <div key={idx} className="flex items-center gap-3 px-3 py-2 bg-slate-800/50 rounded text-sm">
+                                      <span className="text-slate-500 w-6">{idx + 1}</span>
+                                      <span className="text-cyan-400">{idType}</span>
+                                      {idDetail && <span className="text-slate-400">({idDetail})</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <SecurityFeatureCard
+                        icon={User}
+                        name="User Identification"
+                        enabled={false}
+                        value="Not configured"
+                      />
+                    )}
                     <SecurityFeatureCard
                       icon={AlertTriangle}
                       name="Malicious User Mitigation"
