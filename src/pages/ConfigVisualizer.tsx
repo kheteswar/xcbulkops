@@ -2662,212 +2662,426 @@ export function ConfigVisualizer() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <SecurityFeatureCard
-                      icon={Bot}
-                      name="Bot Defense"
-                      enabled={!!spec?.bot_defense}
-                      value={spec?.bot_defense?.policy?.name || (spec?.bot_defense ? 'Enabled' : 'Not configured')}
-                      details={spec?.bot_defense?.regional_endpoint ? `Endpoint: ${spec.bot_defense.regional_endpoint}` : undefined}
-                    />
-                    {spec?.user_identification ? (
-                      <div className="p-4 rounded-xl border bg-emerald-500/5 border-emerald-500/20">
-                        <div className="flex items-start gap-3 mb-3">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400">
-                            <User className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <h3 className="text-sm font-medium text-slate-300">User Identification</h3>
-                              {state.userIdentificationPolicy && (
-                                <button
-                                  onClick={() => setJsonModal({ title: `User Identification: ${spec.user_identification?.name}`, data: state.userIdentificationPolicy })}
-                                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                                >
-                                  <Code2 className="w-3 h-3" />
-                                  JSON
-                                </button>
-                              )}
+                  <div className="space-y-4">
+                    {spec?.user_identification && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-500/15 text-emerald-400">
+                              <User className="w-5 h-5" />
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                              <span className="text-sm text-slate-200">{spec.user_identification.name}</span>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">User Identification</h3>
+                              <span className="text-sm text-slate-400">{spec.user_identification.name}</span>
                             </div>
+                            <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
                           </div>
+                          {state.userIdentificationPolicy && (
+                            <button
+                              onClick={() => setJsonModal({ title: `User Identification: ${spec.user_identification?.name}`, data: state.userIdentificationPolicy })}
+                              className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                            >
+                              <Code2 className="w-3.5 h-3.5" />
+                              View JSON
+                            </button>
+                          )}
                         </div>
                         {state.userIdentificationPolicy && (() => {
                           const policySpec = state.userIdentificationPolicy.spec || state.userIdentificationPolicy.get_spec;
                           const rules = policySpec?.rules || [];
                           if (rules.length === 0) return null;
                           return (
-                            <div className="mt-3 pt-3 border-t border-slate-700/50">
-                              <span className="text-xs text-slate-500 block mb-2">Identification Rules ({rules.length})</span>
-                              <div className="space-y-1.5">
-                                {rules.map((rule, idx) => {
-                                  let idType = 'Unknown';
-                                  let idDetail = '';
-                                  const identifier = rule.client_identifier;
-                                  if (rule.ip_and_ja4_tls_fingerprint !== undefined || identifier?.ip_and_ja4_tls_fingerprint !== undefined) {
-                                    idType = 'IP Address + TLS JA4 Fingerprint';
-                                  } else if (rule.ip_and_tls_fingerprint !== undefined || identifier?.ip_and_tls_fingerprint !== undefined) {
-                                    idType = 'IP Address + TLS Fingerprint';
-                                  } else if (rule.ja4_tls_fingerprint !== undefined || identifier?.ja4_tls_fingerprint !== undefined) {
-                                    idType = 'TLS JA4 Fingerprint';
-                                  } else if (rule.client_ip !== undefined || identifier?.client_ip !== undefined) {
-                                    idType = 'Client IP';
-                                  } else if (rule.tls_fingerprint !== undefined || identifier?.tls_fingerprint !== undefined) {
-                                    idType = 'TLS Fingerprint';
-                                  } else if (rule.http_header || identifier?.http_header) {
-                                    idType = 'HTTP Header';
-                                    idDetail = rule.http_header?.name || identifier?.http_header?.name || '';
-                                  } else if (rule.http_cookie || identifier?.http_cookie) {
-                                    idType = 'HTTP Cookie';
-                                    idDetail = rule.http_cookie?.name || identifier?.http_cookie?.name || '';
-                                  } else if (rule.none !== undefined || identifier?.none !== undefined) {
-                                    idType = 'None';
-                                  }
-                                  return (
-                                    <div key={idx} className="flex items-center gap-3 px-3 py-2 bg-slate-800/50 rounded text-sm">
-                                      <span className="text-slate-500 w-6">{idx + 1}</span>
-                                      <span className="text-cyan-400">{idType}</span>
-                                      {idDetail && <span className="text-slate-400">({idDetail})</span>}
-                                    </div>
-                                  );
-                                })}
+                            <div className="border-t border-slate-700/50 pt-4">
+                              <span className="text-xs text-slate-500 block mb-3">Identification Rules ({rules.length})</span>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="text-left text-xs text-slate-500">
+                                      <th className="pb-2 pr-4 w-16">Order</th>
+                                      <th className="pb-2">Identifier Type</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rules.map((rule, idx) => {
+                                      let idType = 'Unknown';
+                                      let idDetail = '';
+                                      const identifier = rule.client_identifier;
+                                      if (rule.ip_and_ja4_tls_fingerprint !== undefined || identifier?.ip_and_ja4_tls_fingerprint !== undefined) {
+                                        idType = 'IP Address + TLS JA4 Fingerprint';
+                                      } else if (rule.ip_and_tls_fingerprint !== undefined || identifier?.ip_and_tls_fingerprint !== undefined) {
+                                        idType = 'IP Address + TLS Fingerprint';
+                                      } else if (rule.ja4_tls_fingerprint !== undefined || identifier?.ja4_tls_fingerprint !== undefined) {
+                                        idType = 'TLS JA4 Fingerprint';
+                                      } else if (rule.client_ip !== undefined || identifier?.client_ip !== undefined) {
+                                        idType = 'Client IP';
+                                      } else if (rule.tls_fingerprint !== undefined || identifier?.tls_fingerprint !== undefined) {
+                                        idType = 'TLS Fingerprint';
+                                      } else if (rule.http_header || identifier?.http_header) {
+                                        idType = 'HTTP Header';
+                                        idDetail = rule.http_header?.name || identifier?.http_header?.name || '';
+                                      } else if (rule.http_cookie || identifier?.http_cookie) {
+                                        idType = 'HTTP Cookie';
+                                        idDetail = rule.http_cookie?.name || identifier?.http_cookie?.name || '';
+                                      } else if (rule.none !== undefined || identifier?.none !== undefined) {
+                                        idType = 'None';
+                                      }
+                                      return (
+                                        <tr key={idx} className="border-t border-slate-700/30">
+                                          <td className="py-2 pr-4 text-slate-400">{idx + 1}</td>
+                                          <td className="py-2 text-cyan-400">{idType}{idDetail && <span className="text-slate-400 ml-2">({idDetail})</span>}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
                             </div>
                           );
                         })()}
                       </div>
-                    ) : (
-                      <SecurityFeatureCard
-                        icon={User}
-                        name="User Identification"
-                        enabled={false}
-                        value="Not configured"
-                      />
                     )}
-                    <SecurityFeatureCard
-                      icon={AlertTriangle}
-                      name="Malicious User Mitigation"
-                      enabled={!!spec?.malicious_user_mitigation || !!spec?.policy_based_challenge?.malicious_user_mitigation}
-                      value={spec?.malicious_user_mitigation?.name || spec?.policy_based_challenge?.malicious_user_mitigation?.name || 'Not configured'}
-                    />
-                    <SecurityFeatureCard
-                      icon={Eye}
-                      name="Malicious User Detection"
-                      enabled={spec?.enable_malicious_user_detection === true || (!spec?.disable_malicious_user_detection && spec?.malicious_user_detection !== undefined)}
-                      value={spec?.enable_malicious_user_detection || spec?.malicious_user_detection ? 'Enabled' : (spec?.disable_malicious_user_detection ? 'Disabled' : 'Not configured')}
-                    />
-                    <SecurityFeatureCard
-                      icon={Network}
-                      name="IP Reputation"
-                      enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation}
-                      value={spec?.enable_ip_reputation || spec?.ip_reputation ? 'Enabled' : 'Not configured'}
-                    />
-                    <SecurityFeatureCard
-                      icon={Zap}
-                      name="DDoS Detection"
-                      enabled={!spec?.disable_ddos_detection && (!!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection)}
-                      value={spec?.disable_ddos_detection ? 'Disabled' : (spec?.enable_ddos_detection || spec?.ddos_detection || spec?.single_lb_app?.enable_ddos_detection ? 'Enabled' : 'Default (Enabled)')}
-                    />
-                    <SecurityFeatureCard
-                      icon={Search}
-                      name="API Discovery"
-                      enabled={!spec?.disable_api_discovery && (!!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery)}
-                      value={spec?.disable_api_discovery ? 'Disabled' : (spec?.enable_api_discovery || spec?.single_lb_app?.enable_discovery ? 'Enabled' : 'Not configured')}
-                    />
-                    <SecurityFeatureCard
-                      icon={Layers}
-                      name="Client-Side Defense"
-                      enabled={!spec?.disable_client_side_defense && !!spec?.client_side_defense}
-                      value={spec?.disable_client_side_defense ? 'Disabled' : (spec?.client_side_defense?.policy?.name || (spec?.client_side_defense ? 'Enabled' : 'Not configured'))}
-                    />
-                    {spec?.rate_limiter && (
-                      <SecurityFeatureCard
-                        icon={Timer}
-                        name="Rate Limiter"
-                        enabled={true}
-                        value={spec.rate_limiter.name}
-                      />
-                    )}
-                    {spec?.api_definition && (
-                      <SecurityFeatureCard
-                        icon={FileText}
-                        name="API Definition"
-                        enabled={true}
-                        value={spec.api_definition.name}
-                      />
-                    )}
-                    {(spec?.captcha_challenge || spec?.js_challenge || spec?.policy_based_challenge || spec?.no_challenge) && (
-                      <SecurityFeatureCard
-                        icon={ShieldCheck}
-                        name="Challenge Configuration"
-                        enabled={!spec?.no_challenge}
-                        value={
-                          spec?.no_challenge ? 'No Challenge' :
-                          spec?.captcha_challenge ? 'CAPTCHA Challenge' :
-                          spec?.js_challenge ? 'JS Challenge' :
-                          spec?.policy_based_challenge ? 'Policy Based' : 'Configured'
-                        }
-                        details={
-                          spec?.js_challenge?.js_script_delay ? `Delay: ${spec.js_challenge.js_script_delay}ms` :
-                          spec?.captcha_challenge?.cookie_expiry ? `Cookie Expiry: ${spec.captcha_challenge.cookie_expiry}s` :
-                          undefined
-                        }
-                      />
-                    )}
-                    {spec?.slow_ddos_mitigation && (
-                      <SecurityFeatureCard
-                        icon={Timer}
-                        name="Slow DDoS Mitigation"
-                        enabled={true}
-                        value="Configured"
-                        details={`Headers: ${spec.slow_ddos_mitigation.request_headers_timeout || 'default'}ms, Request: ${spec.slow_ddos_mitigation.request_timeout || 'default'}ms`}
-                      />
-                    )}
-                    {spec?.csrf_policy && !spec.csrf_policy.disabled && (
-                      <SecurityFeatureCard
-                        icon={Shield}
-                        name="CSRF Protection"
-                        enabled={true}
-                        value="Enabled"
-                        details={spec.csrf_policy.allowed_domains?.length ? `${spec.csrf_policy.allowed_domains.length} allowed domains` : undefined}
-                      />
-                    )}
-                    {spec?.cors_policy && !spec.cors_policy.disabled && (
-                      <SecurityFeatureCard
-                        icon={Globe}
-                        name="CORS Policy"
-                        enabled={true}
-                        value="Configured"
-                        details={spec.cors_policy.allow_origin?.length ? `${spec.cors_policy.allow_origin.length} origins` : undefined}
-                      />
-                    )}
-                  </div>
 
-                  {(spec?.waf_exclusion_rules?.length || spec?.data_guard_rules?.length || spec?.trusted_clients?.length || spec?.blocked_clients?.length) && (
+                    {spec?.cors_policy && !spec.cors_policy.disabled && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-500/15 text-blue-400">
+                              <Globe className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">CORS Policy</h3>
+                            </div>
+                            <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'CORS Policy', data: spec.cors_policy })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                          <DetailItem label="Allow Methods" value={spec.cors_policy.allow_methods || '*'} />
+                          <DetailItem label="Allow Headers" value={spec.cors_policy.allow_headers || '*'} />
+                          <DetailItem label="Expose Headers" value={spec.cors_policy.expose_headers || '*'} />
+                          <DetailItem label="Allow Credentials" value={spec.cors_policy.allow_credentials ? 'Yes' : 'No'} enabled={spec.cors_policy.allow_credentials} />
+                        </div>
+                        {(spec.cors_policy.allow_origin?.length || spec.cors_policy.allow_origin_regex?.length) && (
+                          <div className="border-t border-slate-700/50 pt-4">
+                            <span className="text-xs text-slate-500 block mb-2">Allowed Origins</span>
+                            <div className="flex flex-wrap gap-2">
+                              {spec.cors_policy.allow_origin?.map((origin, i) => (
+                                <span key={i} className="px-3 py-1 bg-slate-800 rounded text-sm text-slate-300">{origin}</span>
+                              ))}
+                              {spec.cors_policy.allow_origin_regex?.map((regex, i) => (
+                                <span key={`regex-${i}`} className="px-3 py-1 bg-slate-800 rounded text-sm text-amber-400 font-mono">{regex}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {spec?.rate_limit && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-500/15 text-amber-400">
+                              <Timer className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">Rate Limiting</h3>
+                            </div>
+                            <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'Rate Limit Configuration', data: spec.rate_limit })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {spec.rate_limit.rate_limiter && (
+                            <>
+                              <DetailItem label="Rate" value={`${spec.rate_limit.rate_limiter.total_number || 0} / ${spec.rate_limit.rate_limiter.unit || 'MINUTE'}`} />
+                              <DetailItem label="Burst Multiplier" value={String(spec.rate_limit.rate_limiter.burst_multiplier || 1)} />
+                              <DetailItem label="Period Multiplier" value={String(spec.rate_limit.rate_limiter.period_multiplier || 1)} />
+                            </>
+                          )}
+                          <DetailItem label="IP Allow List" value={spec.rate_limit.no_ip_allowed_list !== undefined ? 'None' : (spec.rate_limit.ip_allowed_list?.prefixes?.length ? `${spec.rate_limit.ip_allowed_list.prefixes.length} IPs` : 'None')} />
+                        </div>
+                      </div>
+                    )}
+
+                    {(spec?.blocked_clients?.length || spec?.trusted_clients?.length) && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-600/50 text-slate-300">
+                              <User className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">Client Lists</h3>
+                            </div>
+                            <span className="px-2 py-1 bg-slate-600 text-slate-300 rounded text-xs font-medium">
+                              {(spec?.blocked_clients?.length || 0) + (spec?.trusted_clients?.length || 0)} entries
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'Client Lists', data: { blocked_clients: spec?.blocked_clients, trusted_clients: spec?.trusted_clients } })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
+                        </div>
+                        {spec?.blocked_clients && spec.blocked_clients.length > 0 && (
+                          <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <X className="w-4 h-4 text-red-400" />
+                              <span className="text-sm text-red-400 font-medium">Blocked Clients ({spec.blocked_clients.length})</span>
+                            </div>
+                            <div className="space-y-2">
+                              {spec.blocked_clients.map((client, i) => (
+                                <div key={i} className="px-4 py-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                                  <div className="flex items-center gap-3">
+                                    <code className="text-slate-200">{client.ip_prefix || `ASN: ${client.as_number}`}</code>
+                                    {client.metadata?.name && <span className="text-slate-500">({client.metadata.name})</span>}
+                                    {client.metadata?.disable && <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {spec?.trusted_clients && spec.trusted_clients.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Check className="w-4 h-4 text-emerald-400" />
+                              <span className="text-sm text-emerald-400 font-medium">Trusted Clients ({spec.trusted_clients.length})</span>
+                            </div>
+                            <div className="space-y-2">
+                              {spec.trusted_clients.map((client, i) => (
+                                <div key={i} className="px-4 py-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-3">
+                                      <code className="text-slate-200">{client.ip_prefix || `ASN: ${client.as_number}`}</code>
+                                      {client.metadata?.name && <span className="text-slate-500">({client.metadata.name})</span>}
+                                    </div>
+                                  </div>
+                                  {client.skip_processing && client.skip_processing.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {client.skip_processing.map((skip, j) => (
+                                        <span key={j} className="px-2 py-0.5 bg-teal-500/15 text-teal-400 rounded text-xs uppercase">{skip.replace(/_/g, ' ')}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {spec?.protected_cookies && spec.protected_cookies.length > 0 && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-teal-500/15 text-teal-400">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">Protected Cookies</h3>
+                            </div>
+                            <span className="px-2 py-1 bg-slate-600 text-slate-300 rounded text-xs font-medium">{spec.protected_cookies.length} cookie{spec.protected_cookies.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'Protected Cookies', data: spec.protected_cookies })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {spec.protected_cookies.map((cookie, i) => (
+                            <div key={i} className="flex items-center justify-between px-4 py-2 bg-slate-800/50 rounded">
+                              <code className="text-slate-200">{cookie.name}</code>
+                              <div className="flex items-center gap-2">
+                                {(cookie.add_secure !== undefined || cookie.ignore_secure === undefined) && <span className="px-2 py-0.5 bg-teal-500/15 text-teal-400 rounded text-xs">Secure</span>}
+                                {(cookie.add_httponly !== undefined || cookie.ignore_httponly === undefined) && <span className="px-2 py-0.5 bg-teal-500/15 text-teal-400 rounded text-xs">HttpOnly</span>}
+                                {cookie.enable_tampering_protection !== undefined && <span className="px-2 py-0.5 bg-amber-500/15 text-amber-400 rounded text-xs">Tamper Protected</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(() => {
+                      const appTypeSpec = state.appType?.spec || state.appType?.get_spec;
+                      const appSettingSpec = state.appSetting?.spec || state.appSetting?.get_spec;
+                      const hasAiMlSettings = appTypeSpec?.user_behavior_analysis_setting || appTypeSpec?.malicious_user_mitigation || appSettingSpec?.user_behavior_analysis_setting || appSettingSpec?.malicious_user_mitigation;
+
+                      if (!hasAiMlSettings) return null;
+
+                      const userBehavior = appTypeSpec?.user_behavior_analysis_setting || appSettingSpec?.user_behavior_analysis_setting;
+                      const maliciousMitigation = appTypeSpec?.malicious_user_mitigation || appSettingSpec?.malicious_user_mitigation;
+
+                      return (
+                        <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-violet-500/15 text-violet-400">
+                                <Eye className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-semibold text-slate-200">AI/ML Security Features</h3>
+                                <span className="text-xs text-slate-500">From App Type: {state.appType?.metadata?.name || state.appType?.name}</span>
+                              </div>
+                              <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
+                            </div>
+                            <button
+                              onClick={() => setJsonModal({ title: 'AI/ML Security Settings', data: { user_behavior_analysis: userBehavior, malicious_user_mitigation: maliciousMitigation, app_type: state.appType, app_setting: state.appSetting } })}
+                              className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                            >
+                              <Code2 className="w-3.5 h-3.5" />
+                              View JSON
+                            </button>
+                          </div>
+                          <div className="space-y-4">
+                            {userBehavior && (
+                              <div className="p-4 bg-slate-800/50 rounded-lg">
+                                <h4 className="text-sm font-medium text-slate-300 mb-3">User Behavior Analysis (Malicious User Detection)</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  <DetailItem label="Detection" value={userBehavior.enable_detection ? 'Enabled' : 'Disabled'} enabled={userBehavior.enable_detection} small />
+                                  <DetailItem label="Learning" value={userBehavior.enable_learning ? 'Enabled' : 'Disabled'} enabled={userBehavior.enable_learning} small />
+                                  {userBehavior.cooldown_period && <DetailItem label="Cooldown Period" value={`${userBehavior.cooldown_period}s`} small />}
+                                  <DetailItem label="Failed Login" value={userBehavior.include_failed_login ? 'Included' : 'Excluded'} enabled={userBehavior.include_failed_login} small />
+                                  <DetailItem label="Forbidden Requests" value={userBehavior.include_forbidden_requests ? 'Included' : 'Excluded'} enabled={userBehavior.include_forbidden_requests} small />
+                                  <DetailItem label="IP Reputation" value={userBehavior.include_ip_reputation ? 'Included' : 'Excluded'} enabled={userBehavior.include_ip_reputation} small />
+                                  <DetailItem label="WAF Data" value={userBehavior.include_waf_data ? 'Included' : 'Excluded'} enabled={userBehavior.include_waf_data} small />
+                                </div>
+                              </div>
+                            )}
+                            {maliciousMitigation && (
+                              <div className="p-4 bg-slate-800/50 rounded-lg">
+                                <h4 className="text-sm font-medium text-slate-300 mb-3">Malicious User Mitigation</h4>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400">Policy:</span>
+                                  <span className="text-slate-200">{maliciousMitigation.name}</span>
+                                  {maliciousMitigation.namespace && <span className="text-slate-500">({maliciousMitigation.namespace})</span>}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                       <div className="flex items-center gap-3 mb-4">
-                        <Settings className="w-6 h-6 text-slate-400" />
-                        <h3 className="text-lg font-semibold text-slate-200">Additional Security Rules</h3>
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-600/50 text-slate-300">
+                          <Shield className="w-5 h-5" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-slate-200">Security Features Status</h3>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {spec?.waf_exclusion_rules && (
-                          <DetailItem label="WAF Exclusion Rules" value={spec.waf_exclusion_rules.length.toString()} />
-                        )}
-                        {spec?.data_guard_rules && (
-                          <DetailItem label="Data Guard Rules" value={spec.data_guard_rules.length.toString()} />
-                        )}
-                        {spec?.trusted_clients && (
-                          <DetailItem label="Trusted Clients" value={spec.trusted_clients.length.toString()} />
-                        )}
-                        {spec?.blocked_clients && (
-                          <DetailItem label="Blocked Clients" value={spec.blocked_clients.length.toString()} />
-                        )}
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        <FeatureStatusItem label="Bot Defense" enabled={!!spec?.bot_defense} disabled={!!spec?.disable_bot_defense} />
+                        <FeatureStatusItem label="IP Reputation" enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation} disabled={!!spec?.disable_ip_reputation} />
+                        <FeatureStatusItem label="DDoS Detection" enabled={!!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection} disabled={!!spec?.disable_ddos_detection} />
+                        <FeatureStatusItem label="API Discovery" enabled={!!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery} disabled={!!spec?.disable_api_discovery} />
+                        <FeatureStatusItem label="Client-Side Defense" enabled={!!spec?.client_side_defense} disabled={!!spec?.disable_client_side_defense} />
+                        <FeatureStatusItem label="Malicious User Detection" enabled={!!spec?.enable_malicious_user_detection || !!spec?.malicious_user_detection} disabled={!!spec?.disable_malicious_user_detection} />
+                        <FeatureStatusItem label="Threat Mesh" enabled={!spec?.disable_threat_mesh} disabled={!!spec?.disable_threat_mesh} />
+                        <FeatureStatusItem label="Malware Protection" enabled={!spec?.disable_malware_protection} disabled={!!spec?.disable_malware_protection} />
+                        <FeatureStatusItem label="CSRF Protection" enabled={!!spec?.csrf_policy && !spec?.csrf_policy?.disabled} disabled={!!spec?.csrf_policy?.disabled} />
+                        {spec?.rate_limiter && <FeatureStatusItem label="Rate Limiter" enabled={true} disabled={false} />}
+                        {spec?.api_definition && <FeatureStatusItem label="API Definition" enabled={true} disabled={false} />}
+                        {spec?.slow_ddos_mitigation && <FeatureStatusItem label="Slow DDoS Mitigation" enabled={true} disabled={false} />}
                       </div>
+                      {(spec?.bot_defense || (spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object')) && (
+                        <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-3">
+                          {spec?.bot_defense && (
+                            <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <Bot className="w-5 h-5 text-teal-400" />
+                                <div>
+                                  <span className="text-slate-300">Bot Defense Policy</span>
+                                  <span className="text-slate-500 ml-2">{spec.bot_defense.policy?.name || 'Default'}</span>
+                                </div>
+                              </div>
+                              {spec.bot_defense.regional_endpoint && (
+                                <span className="text-xs text-slate-400">Endpoint: {spec.bot_defense.regional_endpoint}</span>
+                              )}
+                            </div>
+                          )}
+                          {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories && (
+                            <div className="p-3 bg-slate-800/50 rounded-lg">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Network className="w-4 h-4 text-amber-400" />
+                                <span className="text-slate-300 text-sm">IP Threat Categories</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {((spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories || []).map((cat, i) => (
+                                  <span key={i} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">{cat}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
+
+                    {(spec?.captcha_challenge || spec?.js_challenge || spec?.policy_based_challenge) && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-cyan-500/15 text-cyan-400">
+                              <ShieldCheck className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">Challenge Configuration</h3>
+                              <span className="text-sm text-slate-400">
+                                {spec?.captcha_challenge ? 'CAPTCHA Challenge' : spec?.js_challenge ? 'JavaScript Challenge' : 'Policy Based Challenge'}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'Challenge Configuration', data: { captcha_challenge: spec?.captcha_challenge, js_challenge: spec?.js_challenge, policy_based_challenge: spec?.policy_based_challenge } })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {spec?.js_challenge && (
+                            <>
+                              <DetailItem label="Cookie Expiry" value={`${spec.js_challenge.cookie_expiry || 3600}s`} />
+                              <DetailItem label="Script Delay" value={`${spec.js_challenge.js_script_delay || 5000}ms`} />
+                            </>
+                          )}
+                          {spec?.captcha_challenge && (
+                            <DetailItem label="Cookie Expiry" value={`${spec.captcha_challenge.cookie_expiry || 3600}s`} />
+                          )}
+                          {spec?.policy_based_challenge && (
+                            <>
+                              {spec.policy_based_challenge.malicious_user_mitigation && (
+                                <DetailItem label="Malicious User Mitigation" value={spec.policy_based_challenge.malicious_user_mitigation.name} />
+                              )}
+                              <DetailItem label="Default Captcha Params" value={spec.policy_based_challenge.default_captcha_challenge_parameters ? 'Yes' : 'No'} />
+                              <DetailItem label="Default JS Params" value={spec.policy_based_challenge.default_js_challenge_parameters ? 'Yes' : 'No'} />
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules && spec.waf_exclusion.waf_exclusion_inline_rules.rules.length > 0 && (
                     <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
