@@ -223,7 +223,7 @@ export function WAFScanner() {
             namespace: ns,
             lb_name: lbName,
             route: routePath,
-            waf_name: routeWafName === 'inherit' ? `↳ ${wafDisplayName}` : routeWafName,
+            waf_name: routeWafName === 'inherit' ? wafDisplayName : routeWafName,
             waf_mode: routeWafMode,
             inherited: routeWafName === 'inherit',
           });
