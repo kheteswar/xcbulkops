@@ -1120,7 +1120,7 @@ export function ConfigVisualizer() {
                                       {cert.private_key?.clear_secret_info && (
                                         <DetailItem label="Private Key" value={cert.private_key.clear_secret_info.provider || 'Clear'} small />
                                       )}
-                                      {cert.custom_hash_algorithms?.length && (
+                                      {cert.custom_hash_algorithms && cert.custom_hash_algorithms.length > 0 && (
                                         <DetailItem label="Hash Algorithms" value={cert.custom_hash_algorithms.join(', ')} small />
                                       )}
                                     </div>
@@ -2174,7 +2174,7 @@ export function ConfigVisualizer() {
                                       value={wafSpec.data_leak_prevention_setting.us_social_security_numbers || 'Not configured'}
                                       small
                                     />
-                                    {wafSpec.data_leak_prevention_setting.custom_patterns?.length && (
+                                    {wafSpec.data_leak_prevention_setting.custom_patterns && wafSpec.data_leak_prevention_setting.custom_patterns.length > 0 && (
                                       <DetailItem
                                         label="Custom Patterns"
                                         value={`${wafSpec.data_leak_prevention_setting.custom_patterns.length} pattern(s)`}
@@ -2198,7 +2198,7 @@ export function ConfigVisualizer() {
                                     {wafSpec.file_upload_restriction_setting.max_file_size && (
                                       <DetailItem label="Max File Size" value={`${wafSpec.file_upload_restriction_setting.max_file_size} bytes`} small />
                                     )}
-                                    {wafSpec.file_upload_restriction_setting.allowed_file_types?.length && (
+                                    {wafSpec.file_upload_restriction_setting.allowed_file_types && wafSpec.file_upload_restriction_setting.allowed_file_types.length > 0 && (
                                       <DetailItem label="Allowed Types" value={wafSpec.file_upload_restriction_setting.allowed_file_types.length.toString()} small />
                                     )}
                                   </div>
@@ -2629,18 +2629,18 @@ export function ConfigVisualizer() {
                                               <div className="flex flex-wrap gap-2 text-xs">
                                                 {r.spec?.any_client && <span className="text-slate-500">Any Client</span>}
                                                 {r.spec?.any_ip && <span className="text-slate-500">Any IP</span>}
-                                                {r.spec?.ip_prefix_list?.prefixes?.length && (
+                                                {r.spec?.ip_prefix_list?.prefixes && r.spec.ip_prefix_list.prefixes.length > 0 && (
                                                   <span className="text-blue-400">{r.spec.ip_prefix_list.prefixes.length} IP prefix(es)</span>
                                                 )}
                                                 {r.spec?.path?.prefix && <span className="text-cyan-400">Path: {r.spec.path.prefix}</span>}
                                                 {r.spec?.path?.regex && <span className="text-cyan-400">Regex: {r.spec.path.regex}</span>}
-                                                {r.spec?.http_method?.methods?.length && (
+                                                {r.spec?.http_method?.methods && r.spec.http_method.methods.length > 0 && (
                                                   <span className="text-amber-400">{r.spec.http_method.methods.join(', ')}</span>
                                                 )}
                                                 {r.spec?.waf_action?.waf_skip_processing && <span className="text-red-400">Skip WAF</span>}
                                                 {r.spec?.waf_action?.waf_in_monitoring_mode && <span className="text-amber-400">WAF Monitor</span>}
-                                                {r.spec?.headers?.length && <span className="text-slate-400">{r.spec.headers.length} header(s)</span>}
-                                                {r.spec?.asn_list?.as_numbers?.length && <span className="text-slate-400">{r.spec.asn_list.as_numbers.length} ASN(s)</span>}
+                                                {r.spec?.headers && r.spec.headers.length > 0 && <span className="text-slate-400">{r.spec.headers.length} header(s)</span>}
+                                                {r.spec?.asn_list?.as_numbers && r.spec.asn_list.as_numbers.length > 0 && <span className="text-slate-400">{r.spec.asn_list.as_numbers.length} ASN(s)</span>}
                                               </div>
                                             </div>
                                           );
