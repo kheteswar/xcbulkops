@@ -2704,22 +2704,26 @@ export function ConfigVisualizer() {
                               <span className="text-xs text-slate-500 block mb-2">Identification Rules ({rules.length})</span>
                               <div className="space-y-1.5">
                                 {rules.map((rule, idx) => {
-                                  const identifier = rule.client_identifier;
                                   let idType = 'Unknown';
                                   let idDetail = '';
-                                  if (identifier?.ip_and_tls_fingerprint !== undefined) {
-                                    idType = 'IP + TLS Fingerprint';
-                                  } else if (identifier?.client_ip !== undefined) {
+                                  const identifier = rule.client_identifier;
+                                  if (rule.ip_and_ja4_tls_fingerprint !== undefined || identifier?.ip_and_ja4_tls_fingerprint !== undefined) {
+                                    idType = 'IP Address + TLS JA4 Fingerprint';
+                                  } else if (rule.ip_and_tls_fingerprint !== undefined || identifier?.ip_and_tls_fingerprint !== undefined) {
+                                    idType = 'IP Address + TLS Fingerprint';
+                                  } else if (rule.ja4_tls_fingerprint !== undefined || identifier?.ja4_tls_fingerprint !== undefined) {
+                                    idType = 'TLS JA4 Fingerprint';
+                                  } else if (rule.client_ip !== undefined || identifier?.client_ip !== undefined) {
                                     idType = 'Client IP';
-                                  } else if (identifier?.tls_fingerprint !== undefined) {
+                                  } else if (rule.tls_fingerprint !== undefined || identifier?.tls_fingerprint !== undefined) {
                                     idType = 'TLS Fingerprint';
-                                  } else if (identifier?.http_header) {
+                                  } else if (rule.http_header || identifier?.http_header) {
                                     idType = 'HTTP Header';
-                                    idDetail = identifier.http_header.name || '';
-                                  } else if (identifier?.http_cookie) {
+                                    idDetail = rule.http_header?.name || identifier?.http_header?.name || '';
+                                  } else if (rule.http_cookie || identifier?.http_cookie) {
                                     idType = 'HTTP Cookie';
-                                    idDetail = identifier.http_cookie.name || '';
-                                  } else if (identifier?.none !== undefined) {
+                                    idDetail = rule.http_cookie?.name || identifier?.http_cookie?.name || '';
+                                  } else if (rule.none !== undefined || identifier?.none !== undefined) {
                                     idType = 'None';
                                   }
                                   return (

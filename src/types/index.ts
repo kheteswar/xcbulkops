@@ -987,10 +987,20 @@ export interface UserIdentificationPolicySpec {
 }
 
 export interface UserIdentificationRule {
+  ip_and_ja4_tls_fingerprint?: unknown;
+  ip_and_tls_fingerprint?: unknown;
+  client_ip?: unknown;
+  tls_fingerprint?: unknown;
+  ja4_tls_fingerprint?: unknown;
+  http_header?: { name?: string };
+  http_cookie?: { name?: string };
+  none?: unknown;
   client_identifier?: {
+    ip_and_ja4_tls_fingerprint?: unknown;
     ip_and_tls_fingerprint?: unknown;
     client_ip?: unknown;
     tls_fingerprint?: unknown;
+    ja4_tls_fingerprint?: unknown;
     http_header?: { name?: string };
     http_cookie?: { name?: string };
     none?: unknown;
