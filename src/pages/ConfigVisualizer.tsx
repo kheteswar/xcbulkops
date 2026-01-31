@@ -2983,59 +2983,83 @@ export function ConfigVisualizer() {
                       );
                     })()}
 
-                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-600/50 text-slate-300">
-                          <Shield className="w-5 h-5" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-slate-200">Security Features Status</h3>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                        <FeatureStatusItem label="Bot Defense" enabled={!!spec?.bot_defense} disabled={!!spec?.disable_bot_defense} />
-                        <FeatureStatusItem label="IP Reputation" enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation} disabled={!!spec?.disable_ip_reputation} />
-                        <FeatureStatusItem label="DDoS Detection" enabled={!!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection} disabled={!!spec?.disable_ddos_detection} />
-                        <FeatureStatusItem label="API Discovery" enabled={!!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery} disabled={!!spec?.disable_api_discovery} />
-                        <FeatureStatusItem label="Client-Side Defense" enabled={!!spec?.client_side_defense} disabled={!!spec?.disable_client_side_defense} />
-                        <FeatureStatusItem label="Malicious User Detection" enabled={!!spec?.enable_malicious_user_detection || !!spec?.malicious_user_detection} disabled={!!spec?.disable_malicious_user_detection} />
-                        <FeatureStatusItem label="Threat Mesh" enabled={!spec?.disable_threat_mesh} disabled={!!spec?.disable_threat_mesh} />
-                        <FeatureStatusItem label="Malware Protection" enabled={!spec?.disable_malware_protection} disabled={!!spec?.disable_malware_protection} />
-                        <FeatureStatusItem label="CSRF Protection" enabled={!!spec?.csrf_policy && !spec?.csrf_policy?.disabled} disabled={!!spec?.csrf_policy?.disabled} />
-                        {spec?.rate_limiter && <FeatureStatusItem label="Rate Limiter" enabled={true} disabled={false} />}
-                        {spec?.api_definition && <FeatureStatusItem label="API Definition" enabled={true} disabled={false} />}
-                        {spec?.slow_ddos_mitigation && <FeatureStatusItem label="Slow DDoS Mitigation" enabled={true} disabled={false} />}
-                      </div>
-                      {(spec?.bot_defense || (spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object')) && (
-                        <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-3">
-                          {spec?.bot_defense && (
-                            <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <Bot className="w-5 h-5 text-teal-400" />
-                                <div>
-                                  <span className="text-slate-300">Bot Defense Policy</span>
-                                  <span className="text-slate-500 ml-2">{spec.bot_defense.policy?.name || 'Default'}</span>
+                    {(() => {
+                      const appTypeSettingSpec = state.appTypeSetting;
+                      const featureTypes = appTypeSettingSpec?.timeseries_analyses_setting?.metric_selectors || [];
+                      const hasDdosFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'TIMESERIES_ANOMALY_DETECTION');
+                      const hasMudFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'USER_BEHAVIOR_ANALYSIS');
+                      const hasPerReqFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'PER_REQ_ANOMALY_DETECTION');
+                      const hasApiDiscoveryFromAppType = !appTypeSettingSpec?.api_discovery_setting?.disable_learn_from_redirect_traffic;
+
+                      return (
+                        <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-600/50 text-slate-300">
+                              <Shield className="w-5 h-5" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-slate-200">Security Features Status</h3>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            <FeatureStatusItem label="Bot Defense" enabled={!!spec?.bot_defense} disabled={!!spec?.disable_bot_defense} />
+                            <FeatureStatusItem label="IP Reputation" enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation} disabled={!!spec?.disable_ip_reputation} />
+                            <FeatureStatusItem
+                              label="DDoS Detection"
+                              enabled={hasDdosFromAppType || !!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection}
+                              disabled={!hasDdosFromAppType && !!spec?.disable_ddos_detection}
+                            />
+                            <FeatureStatusItem
+                              label="API Discovery"
+                              enabled={hasApiDiscoveryFromAppType || !!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery}
+                              disabled={!hasApiDiscoveryFromAppType && !!spec?.disable_api_discovery}
+                            />
+                            <FeatureStatusItem label="Client-Side Defense" enabled={!!spec?.client_side_defense} disabled={!!spec?.disable_client_side_defense} />
+                            <FeatureStatusItem
+                              label="Malicious User Detection"
+                              enabled={hasMudFromAppType || !!spec?.enable_malicious_user_detection || !!spec?.malicious_user_detection}
+                              disabled={!hasMudFromAppType && !!spec?.disable_malicious_user_detection}
+                            />
+                            <FeatureStatusItem label="Threat Mesh" enabled={!spec?.disable_threat_mesh} disabled={!!spec?.disable_threat_mesh} />
+                            <FeatureStatusItem label="Malware Protection" enabled={!spec?.disable_malware_protection} disabled={!!spec?.disable_malware_protection} />
+                            <FeatureStatusItem label="CSRF Protection" enabled={!!spec?.csrf_policy && !spec?.csrf_policy?.disabled} disabled={!!spec?.csrf_policy?.disabled} />
+                            {hasPerReqFromAppType && <FeatureStatusItem label="Per-Request Analysis" enabled={true} disabled={false} />}
+                            {spec?.rate_limiter && <FeatureStatusItem label="Rate Limiter" enabled={true} disabled={false} />}
+                            {spec?.api_definition && <FeatureStatusItem label="API Definition" enabled={true} disabled={false} />}
+                            {spec?.slow_ddos_mitigation && <FeatureStatusItem label="Slow DDoS Mitigation" enabled={true} disabled={false} />}
+                          </div>
+                          {(spec?.bot_defense || (spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object')) && (
+                            <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-3">
+                              {spec?.bot_defense && (
+                                <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                                  <div className="flex items-center gap-3">
+                                    <Bot className="w-5 h-5 text-teal-400" />
+                                    <div>
+                                      <span className="text-slate-300">Bot Defense Policy</span>
+                                      <span className="text-slate-500 ml-2">{spec.bot_defense.policy?.name || 'Default'}</span>
+                                    </div>
+                                  </div>
+                                  {spec.bot_defense.regional_endpoint && (
+                                    <span className="text-xs text-slate-400">Endpoint: {spec.bot_defense.regional_endpoint}</span>
+                                  )}
                                 </div>
-                              </div>
-                              {spec.bot_defense.regional_endpoint && (
-                                <span className="text-xs text-slate-400">Endpoint: {spec.bot_defense.regional_endpoint}</span>
+                              )}
+                              {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories && (
+                                <div className="p-3 bg-slate-800/50 rounded-lg">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Network className="w-4 h-4 text-amber-400" />
+                                    <span className="text-slate-300 text-sm">IP Threat Categories</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {((spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories || []).map((cat, i) => (
+                                      <span key={i} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">{cat}</span>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
                             </div>
                           )}
-                          {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories && (
-                            <div className="p-3 bg-slate-800/50 rounded-lg">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Network className="w-4 h-4 text-amber-400" />
-                                <span className="text-slate-300 text-sm">IP Threat Categories</span>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {((spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories || []).map((cat, i) => (
-                                  <span key={i} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">{cat}</span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
 
                     {(spec?.captcha_challenge || spec?.js_challenge || spec?.policy_based_challenge) && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
@@ -3439,210 +3463,6 @@ export function ConfigVisualizer() {
                 </div>
               )}
             </section>
-
-            {spec?.cors_policy && !spec.cors_policy.disabled && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                <button
-                  onClick={() => toggleSection('cors')}
-                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Globe className="w-5 h-5 text-blue-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">CORS Policy</h2>
-                  </div>
-                  {expandedSections.has('cors') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-                </button>
-
-                {expandedSections.has('cors') && (
-                  <div className="p-6 space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <DetailItem label="Allow Methods" value={spec.cors_policy.allow_methods || '*'} />
-                      <DetailItem label="Allow Headers" value={spec.cors_policy.allow_headers || '*'} />
-                      <DetailItem label="Expose Headers" value={spec.cors_policy.expose_headers || '*'} />
-                      <DetailItem label="Allow Credentials" value={spec.cors_policy.allow_credentials ? 'Yes' : 'No'} enabled={spec.cors_policy.allow_credentials} />
-                      {spec.cors_policy.max_age && <DetailItem label="Max Age" value={spec.cors_policy.max_age} />}
-                    </div>
-                    {spec.cors_policy.allow_origin && spec.cors_policy.allow_origin.length > 0 && (
-                      <div>
-                        <span className="text-xs text-slate-500 block mb-2">Allowed Origins</span>
-                        <div className="flex flex-wrap gap-2">
-                          {spec.cors_policy.allow_origin.map((origin, idx) => (
-                            <span key={idx} className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-slate-300">{origin}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {spec.cors_policy.allow_origin_regex && spec.cors_policy.allow_origin_regex.length > 0 && (
-                      <div>
-                        <span className="text-xs text-slate-500 block mb-2">Allowed Origins (Regex)</span>
-                        <div className="flex flex-wrap gap-2">
-                          {spec.cors_policy.allow_origin_regex.map((regex, idx) => (
-                            <code key={idx} className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-slate-300">{regex}</code>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {spec?.rate_limit && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                <button
-                  onClick={() => toggleSection('ratelimit')}
-                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Timer className="w-5 h-5 text-amber-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">Rate Limiting</h2>
-                  </div>
-                  {expandedSections.has('ratelimit') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-                </button>
-
-                {expandedSections.has('ratelimit') && (
-                  <div className="p-6">
-                    {spec.rate_limit.rate_limiter && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <DetailItem label="Rate" value={`${spec.rate_limit.rate_limiter.total_number || 0} / ${spec.rate_limit.rate_limiter.unit || 'SECOND'}`} />
-                        <DetailItem label="Burst Multiplier" value={spec.rate_limit.rate_limiter.burst_multiplier?.toString() || '1'} />
-                        <DetailItem label="Period Multiplier" value={spec.rate_limit.rate_limiter.period_multiplier?.toString() || '1'} />
-                        <DetailItem label="IP Allow List" value={spec.rate_limit.ip_allowed_list ? 'Configured' : 'None'} />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {((spec?.blocked_clients && spec.blocked_clients.length > 0) || (spec?.trusted_clients && spec.trusted_clients.length > 0)) && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                <button
-                  onClick={() => toggleSection('clientlists')}
-                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <User className="w-5 h-5 text-rose-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">Client Lists</h2>
-                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                      {(spec.blocked_clients?.length || 0) + (spec.trusted_clients?.length || 0)} entries
-                    </span>
-                  </div>
-                  {expandedSections.has('clientlists') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-                </button>
-
-                {expandedSections.has('clientlists') && (
-                  <div className="p-6 space-y-6">
-                    {spec.blocked_clients && spec.blocked_clients.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-red-400 mb-3 flex items-center gap-2">
-                          <X className="w-4 h-4" /> Blocked Clients ({spec.blocked_clients.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {spec.blocked_clients.map((client, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <span className="text-slate-300 font-mono text-sm">{client.ip_prefix || `ASN: ${client.as_number}`}</span>
-                                {client.metadata?.name && (
-                                  <span className="text-xs text-slate-500">({client.metadata.name})</span>
-                                )}
-                              </div>
-                              {client.metadata?.disable && (
-                                <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {spec.trusted_clients && spec.trusted_clients.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2">
-                          <Check className="w-4 h-4" /> Trusted Clients ({spec.trusted_clients.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {spec.trusted_clients.map((client, idx) => (
-                            <div key={idx} className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-3">
-                                  <span className="text-slate-300 font-mono text-sm">{client.ip_prefix || `ASN: ${client.as_number}`}</span>
-                                  {client.metadata?.name && (
-                                    <span className="text-xs text-slate-500">({client.metadata.name})</span>
-                                  )}
-                                </div>
-                                {client.metadata?.disable && (
-                                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
-                                )}
-                              </div>
-                              {client.actions && client.actions.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {client.actions.map((action, actionIdx) => (
-                                    <span key={actionIdx} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded text-xs">
-                                      {action.replace('SKIP_PROCESSING_', '').replace(/_/g, ' ')}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {spec?.protected_cookies && spec.protected_cookies.length > 0 && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                <button
-                  onClick={() => toggleSection('cookies')}
-                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-cyan-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">Protected Cookies</h2>
-                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                      {spec.protected_cookies.length} cookie{spec.protected_cookies.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  {expandedSections.has('cookies') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
-                </button>
-
-                {expandedSections.has('cookies') && (
-                  <div className="p-6">
-                    <div className="space-y-2">
-                      {spec.protected_cookies.map((cookie, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
-                          <code className="text-slate-300 font-medium">{cookie.name}</code>
-                          <div className="flex items-center gap-2">
-                            {cookie.add_secure && (
-                              <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded text-xs">Secure</span>
-                            )}
-                            {cookie.add_httponly && (
-                              <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded text-xs">HttpOnly</span>
-                            )}
-                            {cookie.samesite_strict && (
-                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">SameSite=Strict</span>
-                            )}
-                            {cookie.samesite_lax && (
-                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">SameSite=Lax</span>
-                            )}
-                            {cookie.samesite_none && (
-                              <span className="px-2 py-0.5 bg-slate-600 text-slate-300 rounded text-xs">SameSite=None</span>
-                            )}
-                            {cookie.enable_tampering_protection && (
-                              <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 rounded text-xs">Tamper Protection</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
 
             {spec?.more_option && ((spec.more_option.request_headers_to_add && spec.more_option.request_headers_to_add.length > 0) || (spec.more_option.response_headers_to_add && spec.more_option.response_headers_to_add.length > 0)) && (
               <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
