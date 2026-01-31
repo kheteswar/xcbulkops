@@ -1,0 +1,3743 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Grid3X3,
+  Loader2,
+  Globe,
+  Server,
+  Shield,
+  Bot,
+  Search,
+  Lock,
+  User,
+  AlertTriangle,
+  Network,
+  Eye,
+  Code,
+  ExternalLink,
+  Check,
+  Copy,
+  X,
+  Clock,
+  Home,
+  Activity,
+  FileText,
+  Zap,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Settings,
+  Database,
+  ArrowRight,
+  Timer,
+  Hash,
+  Link as LinkIcon,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldOff,
+  Layers,
+  Route,
+} from 'lucide-react';
+import { apiClient } from '../services/api';
+import { useApp } from '../context/AppContext';
+import { useToast } from '../context/ToastContext';
+import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite } from '../types';
+import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
+
+const FEATURE_TYPE_NAMES: Record<string, string> = {
+  'USER_BEHAVIOR_ANALYSIS': 'Malicious User Detection',
+  'TIMESERIES_ANOMALY_DETECTION': 'DDoS Detection',
+  'BUSINESS_LOGIC_MARKUP': 'API Discovery',
+  'PER_REQ_ANOMALY_DETECTION': 'Per API Request Analysis',
+};
+
+const getFeatureDisplayName = (type: string): string => {
+  return FEATURE_TYPE_NAMES[type] || type;
+};
+
+interface ViewerState {
+  rootLB: LoadBalancer | null;
+  namespace: string;
+  routes: ParsedRoute[];
+  originPools: Map<string, OriginPool>;
+  wafPolicies: Map<string, WAFPolicy>;
+  healthChecks: Map<string, HealthCheck>;
+  servicePolicies: Map<string, unknown>;
+  virtualSites: Map<string, VirtualSite>;
+  objects: Map<string, unknown>;
+  appType: AppType | null;
+  appSetting: AppSetting | null;
+  appTypeSetting: AppTypeSetting | null;
+}
+
+export function ConfigVisualizer() {
+  const { isConnected } = useApp();
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
+  const [loadBalancers, setLoadBalancers] = useState<LoadBalancer[]>([]);
+  const [selectedNs, setSelectedNs] = useState('');
+  const [selectedLb, setSelectedLb] = useState('');
+  const [isLoadingNs, setIsLoadingNs] = useState(true);
+  const [isLoadingLbs, setIsLoadingLbs] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [scanLog, setScanLog] = useState('');
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls']));
+
+  const [state, setState] = useState<ViewerState>({
+    rootLB: null,
+    namespace: '',
+    routes: [],
+    originPools: new Map(),
+    wafPolicies: new Map(),
+    healthChecks: new Map(),
+    servicePolicies: new Map(),
+    virtualSites: new Map(),
+    objects: new Map(),
+    appType: null,
+    appSetting: null,
+    appTypeSetting: null,
+  });
+
+  const [jsonModal, setJsonModal] = useState<{ title: string; data: unknown } | null>(null);
+
+  useEffect(() => {
+    if (!isConnected) {
+      navigate('/');
+      return;
+    }
+    loadNamespaces();
+  }, [isConnected, navigate]);
+
+  const loadNamespaces = async () => {
+    setIsLoadingNs(true);
+    try {
+      const resp = await apiClient.getNamespaces();
+      setNamespaces(resp.items.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch {
+      toast.error('Failed to load namespaces');
+    } finally {
+      setIsLoadingNs(false);
+    }
+  };
+
+  const loadLoadBalancers = async (ns: string) => {
+    setSelectedNs(ns);
+    setSelectedLb('');
+    setLoadBalancers([]);
+    if (!ns) return;
+
+    setIsLoadingLbs(true);
+    try {
+      const resp = await apiClient.getLoadBalancers(ns);
+      setLoadBalancers((resp.items || []).sort((a, b) => a.name.localeCompare(b.name)));
+    } catch {
+      toast.error('Failed to load load balancers');
+    } finally {
+      setIsLoadingLbs(false);
+    }
+  };
+
+  const log = useCallback((msg: string) => setScanLog(msg), []);
+
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  };
+
+  const parseRoute = (route: LoadBalancer['spec']['routes'][0], index: number): ParsedRoute => {
+    const parsed: ParsedRoute = {
+      index,
+      type: 'unknown',
+      path: '/',
+      pathMatch: 'prefix',
+      methods: ['ANY'],
+      origins: [],
+      waf: null,
+    };
+
+    if (route.custom_route_object) {
+      parsed.type = 'custom';
+      parsed.path = route.custom_route_object.route_ref?.name || 'Custom Route';
+      (parsed as unknown as Record<string, unknown>).routeRef = route.custom_route_object.route_ref;
+      return parsed;
+    }
+
+    if (route.simple_route) {
+      parsed.type = 'simple';
+      const sr = route.simple_route;
+      if (sr.path) {
+        if (sr.path.prefix) {
+          parsed.path = sr.path.prefix;
+          parsed.pathMatch = 'prefix';
+        } else if (sr.path.regex) {
+          parsed.path = sr.path.regex;
+          parsed.pathMatch = 'regex';
+        } else if (sr.path.path) {
+          parsed.path = sr.path.path;
+          parsed.pathMatch = 'exact';
+        }
+      }
+      if (typeof sr.http_method === 'string') {
+        parsed.methods = [sr.http_method];
+      } else if (sr.http_method?.methods) {
+        parsed.methods = sr.http_method.methods;
+      }
+      if (sr.origin_pools) {
+        parsed.origins = sr.origin_pools.map(op => ({
+          name: op.pool?.name,
+          namespace: op.pool?.namespace,
+          weight: op.weight,
+          priority: op.priority,
+        }));
+      }
+      if (sr.advanced_options) {
+        const ao = sr.advanced_options;
+        if (ao.app_firewall) {
+          parsed.waf = {
+            name: ao.app_firewall.name,
+            namespace: ao.app_firewall.namespace,
+          };
+        }
+        if (ao.disable_waf) parsed.waf = { disabled: true };
+        parsed.timeout = ao.timeout || ao.request_timeout;
+        parsed.retries = ao.retry_policy || ao.default_retry_policy;
+        parsed.corsPolicy = ao.cors_policy;
+        parsed.advancedOptions = {
+          hostRewrite: sr.host_rewrite || (sr.auto_host_rewrite !== undefined ? 'auto' : (sr.disable_host_rewrite !== undefined ? 'disabled' : null)),
+          prefixRewrite: ao.prefix_rewrite || (ao.disable_prefix_rewrite !== undefined ? null : undefined),
+          webSocket: ao.enable_web_socket_config !== undefined ? true : (ao.disable_web_socket_config !== undefined ? false : null),
+          spdy: ao.enable_spdy !== undefined ? true : (ao.disable_spdy !== undefined ? false : null),
+          buffering: ao.buffer_policy || ao.common_buffering,
+          mirroring: ao.mirror_policy || (ao.disable_mirroring !== undefined ? false : null),
+          locationAdd: ao.disable_location_add === false,
+          requestHeaders: ao.request_headers_to_add?.length || 0,
+          responseHeaders: ao.response_headers_to_add?.length || 0,
+          requestCookies: (ao.request_cookies_to_add?.length || 0) + (ao.request_cookies_to_remove?.length || 0),
+          responseCookies: (ao.response_cookies_to_add?.length || 0) + (ao.response_cookies_to_remove?.length || 0),
+          priority: ao.priority,
+          botDefense: ao.bot_defense_javascript_injection || ao.inherited_bot_defense_javascript_injection,
+        };
+      }
+      parsed.headerMatchers = sr.headers;
+      parsed.queryParams = sr.query_params;
+    } else if (route.redirect_route) {
+      parsed.type = 'redirect';
+      const rr = route.redirect_route;
+      if (rr.path?.prefix) parsed.path = rr.path.prefix;
+      parsed.redirectConfig = {
+        host: rr.host_redirect,
+        path: rr.path_redirect,
+        code: rr.response_code || '301',
+      };
+    } else if (route.direct_response_route) {
+      parsed.type = 'direct_response';
+      const dr = route.direct_response_route;
+      if (dr.path?.prefix) parsed.path = dr.path.prefix;
+      parsed.directResponse = { code: dr.response_code, body: dr.response_body };
+    }
+
+    return parsed;
+  };
+
+  const startViewer = async () => {
+    if (!selectedNs || !selectedLb) return;
+
+    setIsLoading(true);
+    setState({
+      rootLB: null,
+      namespace: selectedNs,
+      routes: [],
+      originPools: new Map(),
+      wafPolicies: new Map(),
+      healthChecks: new Map(),
+      servicePolicies: new Map(),
+      virtualSites: new Map(),
+      objects: new Map(),
+      appType: null,
+      appSetting: null,
+      appTypeSetting: null,
+    });
+
+    try {
+      log(`Fetching Load Balancer: ${selectedLb}`);
+      const lb = await apiClient.getLoadBalancer(selectedNs, selectedLb);
+      if (!lb) throw new Error('Load Balancer not found');
+      log(`Fetched ${selectedLb}`);
+
+      const routes: ParsedRoute[] = [];
+      if (lb.spec?.routes) {
+        lb.spec.routes.forEach((r, i) => routes.push(parseRoute(r, i)));
+        log(`Found ${routes.length} routes`);
+      }
+
+      const originPools = new Map<string, OriginPool>();
+      const wafPolicies = new Map<string, WAFPolicy>();
+      const healthChecks = new Map<string, HealthCheck>();
+      const servicePolicies = new Map<string, unknown>();
+
+      if (lb.spec?.app_firewall && !lb.spec.disable_waf) {
+        log(`Fetching WAF: ${lb.spec.app_firewall.name}`);
+        try {
+          const waf = await apiClient.getWAFPolicy(
+            lb.spec.app_firewall.namespace || selectedNs,
+            lb.spec.app_firewall.name
+          );
+          wafPolicies.set(lb.spec.app_firewall.name, waf as WAFPolicy);
+        } catch {
+          try {
+            const waf = await apiClient.getWAFPolicy('shared', lb.spec.app_firewall.name);
+            wafPolicies.set(lb.spec.app_firewall.name, { ...waf, shared: true } as WAFPolicy);
+          } catch {}
+        }
+      }
+
+      for (const r of routes) {
+        if (r.waf?.name && !wafPolicies.has(r.waf.name)) {
+          log(`Fetching Route WAF: ${r.waf.name}`);
+          try {
+            const waf = await apiClient.getWAFPolicy(r.waf.namespace || selectedNs, r.waf.name);
+            wafPolicies.set(r.waf.name, waf as WAFPolicy);
+          } catch {
+            try {
+              const waf = await apiClient.getWAFPolicy('shared', r.waf.name);
+              wafPolicies.set(r.waf.name, { ...waf, shared: true } as WAFPolicy);
+            } catch {}
+          }
+        }
+      }
+
+      if (lb.spec?.active_service_policies?.policies) {
+        for (const pol of lb.spec.active_service_policies.policies) {
+          log(`Fetching Service Policy: ${pol.name}`);
+          try {
+            const sp = await apiClient.get(`/api/config/namespaces/${pol.namespace || selectedNs}/service_policys/${pol.name}`);
+            servicePolicies.set(pol.name, sp);
+          } catch {
+            try {
+              const sp = await apiClient.get(`/api/config/namespaces/shared/service_policys/${pol.name}`);
+              servicePolicies.set(pol.name, sp);
+            } catch {}
+          }
+        }
+      }
+
+      const poolRefs = new Set<string>();
+      if (lb.spec?.default_route_pools) {
+        lb.spec.default_route_pools.forEach(p => {
+          if (p.pool?.name) poolRefs.add(`${p.pool.namespace || selectedNs}/${p.pool.name}`);
+        });
+      }
+      routes.forEach(r => {
+        r.origins.forEach(o => {
+          if (o.name) poolRefs.add(`${o.namespace || selectedNs}/${o.name}`);
+        });
+      });
+
+      for (const ref of poolRefs) {
+        const [ns, name] = ref.split('/');
+        log(`Fetching Origin Pool: ${name}`);
+        try {
+          const pool = await apiClient.getOriginPool(ns, name);
+          originPools.set(name, pool);
+
+          if (pool.spec?.healthcheck) {
+            for (const hc of pool.spec.healthcheck) {
+              if (hc.name && !healthChecks.has(hc.name)) {
+                log(`Fetching Health Check: ${hc.name}`);
+                try {
+                  const check = await apiClient.getHealthCheck(hc.namespace || ns, hc.name);
+                  healthChecks.set(hc.name, check as HealthCheck);
+                } catch {
+                  try {
+                    const check = await apiClient.getHealthCheck('shared', hc.name);
+                    healthChecks.set(hc.name, check as HealthCheck);
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {
+          try {
+            const pool = await apiClient.getOriginPool('shared', name);
+            originPools.set(name, pool);
+          } catch {}
+        }
+      }
+
+      const virtualSites = new Map<string, VirtualSite>();
+      for (const pool of originPools.values()) {
+        const servers = pool.spec?.origin_servers || [];
+        for (const server of servers) {
+          const vs = server.private_ip?.site_locator?.virtual_site ||
+                    server.private_name?.site_locator?.virtual_site ||
+                    server.k8s_service?.site_locator?.virtual_site;
+          if (vs?.name && vs?.namespace && !virtualSites.has(`${vs.namespace}/${vs.name}`)) {
+            log(`Fetching Virtual Site: ${vs.namespace}/${vs.name}`);
+            try {
+              const vSite = await apiClient.getVirtualSite(vs.namespace, vs.name);
+              virtualSites.set(`${vs.namespace}/${vs.name}`, vSite);
+            } catch {
+              log(`Could not fetch virtual site: ${vs.namespace}/${vs.name}`);
+            }
+          }
+        }
+      }
+
+      let appType: AppType | null = null;
+      let appSetting: AppSetting | null = null;
+      let appTypeSetting: AppTypeSetting | null = null;
+      const appTypeName = lb.metadata?.labels?.['ves.io/app_type'];
+      if (appTypeName) {
+        log(`Fetching App Type: ${appTypeName}`);
+        try {
+          appType = await apiClient.getAppType(appTypeName);
+        } catch {
+          log(`Could not fetch app_type: ${appTypeName}`);
+        }
+
+        log(`Fetching App Settings for namespace: ${selectedNs}`);
+        try {
+          const appSettingsResp = await apiClient.getAppSettings(selectedNs);
+          if (appSettingsResp.items?.length > 0) {
+            for (const setting of appSettingsResp.items) {
+              const spec = setting.spec || setting.get_spec;
+              const appTypeSettings = spec?.app_type_settings || [];
+              const matchingSetting = appTypeSettings.find(
+                (ats: AppTypeSetting) => ats.app_type_ref?.name === appTypeName
+              );
+              if (matchingSetting) {
+                appSetting = setting;
+                appTypeSetting = matchingSetting;
+                log(`Found matching App Setting: ${setting.metadata?.name || setting.name}`);
+                break;
+              }
+            }
+          }
+        } catch {
+          log(`Could not fetch app_settings for namespace: ${selectedNs}`);
+        }
+
+        if (!appSetting) {
+          log(`Fetching App Settings from shared namespace`);
+          try {
+            const appSettingsResp = await apiClient.getAppSettings('shared');
+            if (appSettingsResp.items?.length > 0) {
+              for (const setting of appSettingsResp.items) {
+                const spec = setting.spec || setting.get_spec;
+                const appTypeSettings = spec?.app_type_settings || [];
+                const matchingSetting = appTypeSettings.find(
+                  (ats: AppTypeSetting) => ats.app_type_ref?.name === appTypeName
+                );
+                if (matchingSetting) {
+                  appSetting = setting;
+                  appTypeSetting = matchingSetting;
+                  log(`Found matching App Setting: ${setting.metadata?.name || setting.name}`);
+                  break;
+                }
+              }
+            }
+          } catch {
+            log(`Could not fetch app_settings from shared namespace`);
+          }
+        }
+      }
+
+      log('Generating report...');
+      setState(prev => ({
+        ...prev,
+        rootLB: lb,
+        routes,
+        originPools,
+        wafPolicies,
+        healthChecks,
+        servicePolicies,
+        virtualSites,
+        appType,
+        appSetting,
+        appTypeSetting,
+      }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getWafMode = (waf: WAFPolicy | null | undefined): string => {
+    if (!waf?.spec) return 'unknown';
+    if (waf.spec.blocking) return 'Blocking';
+    if (waf.spec.monitoring) return 'Monitoring';
+    if (waf.spec.ai_risk_based_blocking) return 'AI Risk-Based';
+    if (waf.spec.mode) return waf.spec.mode;
+    return 'Unknown';
+  };
+
+  const formatDate = (timestamp?: string) => {
+    if (!timestamp) return 'Unknown';
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const formatAlgorithm = (algo?: string) => {
+    const map: Record<string, string> = {
+      ROUND_ROBIN: 'Round Robin',
+      LEAST_ACTIVE: 'Least Connections',
+      RANDOM: 'Random',
+      RING_HASH: 'Ring Hash',
+      SOURCE_IP_STICKINESS: 'Source IP Sticky',
+      LB_OVERRIDE: 'Override',
+    };
+    return map[algo || ''] || algo || 'Round Robin';
+  };
+
+  const copyJson = () => {
+    if (jsonModal?.data) {
+      navigator.clipboard
+        .writeText(JSON.stringify(jsonModal.data, null, 2))
+        .then(() => toast.success('Copied!'))
+        .catch(() => toast.error('Copy failed'));
+    }
+  };
+
+  const lb = state.rootLB;
+  const spec = lb?.spec;
+
+  let lbType = 'HTTP';
+  let lbTypeClass = 'bg-slate-600';
+  if (spec?.https_auto_cert) {
+    lbType = 'HTTPS (Auto Cert)';
+    lbTypeClass = 'bg-emerald-600';
+  } else if (spec?.https) {
+    lbType = 'HTTPS (Custom)';
+    lbTypeClass = 'bg-blue-600';
+  }
+
+  let advertiseType = 'Unknown';
+  if (spec?.advertise_on_public_default_vip) advertiseType = 'Public (Default VIP)';
+  else if (spec?.advertise_on_public) advertiseType = 'Public (Custom)';
+  else if (spec?.advertise_custom) advertiseType = 'Custom';
+  else if (spec?.do_not_advertise) advertiseType = 'Not Advertised';
+
+  const getRouteTypeLabel = (type: string) => {
+    const labels: Record<string, { text: string; color: string }> = {
+      simple: { text: 'Simple', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+      redirect: { text: 'Redirect', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+      direct_response: { text: 'Direct Response', color: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
+      unknown: { text: 'Custom', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30' },
+    };
+    return labels[type] || labels.unknown;
+  };
+
+  const getPathMatchLabel = (match: string) => {
+    const labels: Record<string, { text: string; symbol: string }> = {
+      prefix: { text: 'Prefix Match', symbol: '~' },
+      regex: { text: 'Regex Match', symbol: '.*' },
+      exact: { text: 'Exact Match', symbol: '=' },
+    };
+    return labels[match] || labels.prefix;
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900">
+      <div className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link
+              to="/"
+              className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400">
+                <Grid3X3 className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-slate-100">Config Visualizer</h1>
+                <p className="text-xs text-slate-500">
+                  Comprehensive Load Balancer Configuration View
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <select
+              value={selectedNs}
+              onChange={e => loadLoadBalancers(e.target.value)}
+              disabled={isLoadingNs}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[180px]"
+            >
+              <option value="">Select Namespace</option>
+              {namespaces.map(ns => (
+                <option key={ns.name} value={ns.name}>
+                  {ns.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedLb}
+              onChange={e => setSelectedLb(e.target.value)}
+              disabled={!selectedNs || isLoadingLbs}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[200px] disabled:opacity-50"
+            >
+              <option value="">
+                {isLoadingLbs ? 'Loading...' : 'Select Load Balancer'}
+              </option>
+              {loadBalancers.map(lb => (
+                <option key={lb.name} value={lb.name}>
+                  {lb.name}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={startViewer}
+              disabled={!selectedNs || !selectedLb || isLoading}
+              className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+            >
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+              View
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-24">
+            <Loader2 className="w-10 h-10 animate-spin text-blue-400 mb-4" />
+            <p className="text-slate-400">{scanLog || 'Loading...'}</p>
+          </div>
+        )}
+
+        {!isLoading && !lb && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <Grid3X3 className="w-16 h-16 text-slate-600 mb-4" />
+            <h2 className="text-xl font-semibold text-slate-300 mb-2">
+              Select a Load Balancer to visualize
+            </h2>
+            <p className="text-slate-500 max-w-md">
+              Choose a namespace and load balancer from the dropdowns above to view its
+              complete configuration details.
+            </p>
+          </div>
+        )}
+
+        {!isLoading && lb && (
+          <div className="space-y-6">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400">
+                    <Globe className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded ${lbTypeClass} text-white`}>
+                        {lbType}
+                      </span>
+                      <span className="px-2 py-0.5 text-xs font-semibold rounded bg-slate-700 text-slate-300">
+                        {advertiseType}
+                      </span>
+                      {lb.metadata?.disable && (
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded bg-red-500/20 text-red-400">
+                          Disabled
+                        </span>
+                      )}
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-100">{lb.metadata?.name}</h1>
+                    <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <Home className="w-4 h-4" /> {lb.metadata?.namespace}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" /> Created: {formatDate(lb.system_metadata?.creation_timestamp)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setJsonModal({ title: 'Complete Load Balancer Configuration', data: lb })}
+                  className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                >
+                  <Code className="w-4 h-4" /> View Full JSON
+                </button>
+              </div>
+
+              {lb.metadata?.labels && Object.keys(lb.metadata.labels).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-700">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Hash className="w-4 h-4 text-slate-400" />
+                    <span className="text-sm font-medium text-slate-400">Labels</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(lb.metadata.labels).map(([key, value]) => (
+                      <span key={key} className="inline-flex items-center px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
+                        <span className="text-blue-400 font-medium">{key}</span>
+                        <span className="text-slate-500 mx-1.5">=</span>
+                        <span className="text-slate-300">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+              {[
+                { label: 'Domains', value: spec?.domains?.length || 0, icon: Globe, color: 'text-blue-400' },
+                { label: 'Routes', value: state.routes.length, icon: Route, color: 'text-cyan-400' },
+                { label: 'Origin Pools', value: state.originPools.size, icon: Server, color: 'text-emerald-400' },
+                { label: 'Health Checks', value: state.healthChecks.size, icon: Activity, color: 'text-rose-400' },
+                { label: 'WAF Policies', value: state.wafPolicies.size, icon: Shield, color: 'text-amber-400' },
+                { label: 'Service Policies', value: state.servicePolicies.size, icon: FileText, color: 'text-teal-400' },
+                { label: 'Bot Defense', value: spec?.bot_defense ? 'On' : 'Off', icon: Bot, color: spec?.bot_defense ? 'text-emerald-400' : 'text-slate-500' },
+                { label: 'API Discovery', value: spec?.enable_api_discovery ? 'On' : 'Off', icon: Search, color: spec?.enable_api_discovery ? 'text-emerald-400' : 'text-slate-500' },
+              ].map(stat => (
+                <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+                  <div className={`w-7 h-7 mb-1.5 ${stat.color}`}>
+                    <stat.icon className="w-full h-full" />
+                  </div>
+                  <div className={`text-lg font-bold ${typeof stat.value === 'string' ? (stat.value === 'On' ? 'text-emerald-400' : 'text-slate-500') : 'text-slate-100'}`}>
+                    {stat.value}
+                  </div>
+                  <div className="text-xs text-slate-500">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {state.appType && (() => {
+              const appTypeSpec = state.appType.spec || state.appType.get_spec;
+              const appTypeName = state.appType.metadata?.name || state.appType.name || 'Unknown';
+              const appTypeNs = state.appType.metadata?.namespace || state.appType.namespace || 'shared';
+              const appTypeDisabled = state.appType.metadata?.disable || state.appType.disabled;
+              return (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('apptype')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Layers className="w-5 h-5 text-violet-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">App Type Settings</h2>
+                    <span className="px-2 py-0.5 bg-violet-500/15 text-violet-400 rounded text-xs font-medium">
+                      {appTypeName}
+                    </span>
+                    {state.appSetting && (
+                      <span className="px-2 py-0.5 bg-cyan-500/15 text-cyan-400 rounded text-xs font-medium">
+                        App Setting: {state.appSetting.metadata?.name || state.appSetting.name}
+                      </span>
+                    )}
+                  </div>
+                  {expandedSections.has('apptype') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('apptype') && (
+                  <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <DetailItem label="App Type Name" value={appTypeName} />
+                      <DetailItem label="Namespace" value={appTypeNs} />
+                      <DetailItem label="Status" value={appTypeDisabled ? 'Disabled' : 'Enabled'} enabled={!appTypeDisabled} />
+                      {state.appSetting && (
+                        <DetailItem label="App Setting" value={state.appSetting.metadata?.name || state.appSetting.name || 'N/A'} />
+                      )}
+                    </div>
+
+                    {appTypeSpec?.features && appTypeSpec.features.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-cyan-400" />
+                          AI/ML Feature Types
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {appTypeSpec.features.map((feature, idx) => (
+                            <div
+                              key={idx}
+                              className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-slate-300">{getFeatureDisplayName(feature.type || '')}</span>
+                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 flex-shrink-0">
+                                  Enabled
+                                </span>
+                              </div>
+                              <span className="text-xs text-slate-500 mt-1 block">{feature.type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {appTypeSpec?.business_logic_markup_setting && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Search className="w-4 h-4 text-cyan-400" />
+                          API Discovery Settings
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <DetailItem
+                              label="Learn from Traffic with Redirect Response"
+                              value={appTypeSpec.business_logic_markup_setting.disable ? 'Disabled' : 'Enabled'}
+                              enabled={!appTypeSpec.business_logic_markup_setting.disable}
+                            />
+                            {appTypeSpec.business_logic_markup_setting.discovered_api_settings?.purge_duration_for_inactive_discovered_apis !== undefined && (
+                              <DetailItem
+                                label="Purge Duration"
+                                value={`${appTypeSpec.business_logic_markup_setting.discovered_api_settings.purge_duration_for_inactive_discovered_apis} days`}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {state.appTypeSetting?.business_logic_markup_setting && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Search className="w-4 h-4 text-cyan-400" />
+                          API Discovery Settings (from App Setting)
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <DetailItem
+                              label="Learn from Traffic with Redirect Response"
+                              value={state.appTypeSetting.business_logic_markup_setting.disable ? 'Disabled' : 'Enabled'}
+                              enabled={!state.appTypeSetting.business_logic_markup_setting.disable}
+                            />
+                            {state.appTypeSetting.business_logic_markup_setting.discovered_api_settings?.purge_duration_for_inactive_discovered_apis !== undefined && (
+                              <DetailItem
+                                label="Purge Duration"
+                                value={`${state.appTypeSetting.business_logic_markup_setting.discovered_api_settings.purge_duration_for_inactive_discovered_apis} days`}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {(state.appTypeSetting?.user_behavior_analysis_setting || (state.appSetting?.spec || state.appSetting?.get_spec)?.user_behavior_analysis_setting) && (() => {
+                      const ubaSetting = state.appTypeSetting?.user_behavior_analysis_setting || (state.appSetting?.spec || state.appSetting?.get_spec)?.user_behavior_analysis_setting;
+                      return ubaSetting && (
+                        <div>
+                          <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                            <User className="w-4 h-4 text-blue-400" />
+                            Malicious User Detection Settings (from App Setting)
+                          </h4>
+                          <div className="bg-slate-700/30 rounded-lg p-4">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <DetailItem
+                                label="Detection"
+                                value={ubaSetting.enable_detection ? 'Enabled' : 'Disabled'}
+                                enabled={ubaSetting.enable_detection}
+                              />
+                              <DetailItem
+                                label="Learning"
+                                value={ubaSetting.enable_learning ? 'Enabled' : 'Disabled'}
+                                enabled={ubaSetting.enable_learning}
+                              />
+                              {ubaSetting.cooldown_period && (
+                                <DetailItem label="Cooldown Period" value={`${ubaSetting.cooldown_period}s`} />
+                              )}
+                              <DetailItem
+                                label="Include Failed Login"
+                                value={ubaSetting.include_failed_login ? 'Yes' : 'No'}
+                                enabled={ubaSetting.include_failed_login}
+                              />
+                              <DetailItem
+                                label="Include Forbidden"
+                                value={ubaSetting.include_forbidden_requests ? 'Yes' : 'No'}
+                                enabled={ubaSetting.include_forbidden_requests}
+                              />
+                              <DetailItem
+                                label="Include IP Reputation"
+                                value={ubaSetting.include_ip_reputation ? 'Yes' : 'No'}
+                                enabled={ubaSetting.include_ip_reputation}
+                              />
+                              <DetailItem
+                                label="Include WAF Data"
+                                value={ubaSetting.include_waf_data ? 'Yes' : 'No'}
+                                enabled={ubaSetting.include_waf_data}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {(state.appSetting?.spec || state.appSetting?.get_spec)?.malicious_user_mitigation && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-red-400" />
+                          Malicious User Mitigation (from App Setting)
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <DetailItem
+                            label="Policy"
+                            value={(state.appSetting?.spec || state.appSetting?.get_spec)?.malicious_user_mitigation?.name || 'Configured'}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {(state.appTypeSetting?.timeseries_analyses_setting || (state.appSetting?.spec || state.appSetting?.get_spec)?.timeseries_analyses_setting) && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-amber-400" />
+                          DDoS Detection (Timeseries Analysis) Settings
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <DetailItem label="Status" value="Configured" enabled={true} />
+                        </div>
+                      </div>
+                    )}
+
+                    {appTypeSpec?.bot_defense_setting && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Bot className="w-4 h-4 text-amber-400" />
+                          Bot Defense Settings
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {appTypeSpec.bot_defense_setting.regional_endpoint && (
+                              <DetailItem label="Regional Endpoint" value={appTypeSpec.bot_defense_setting.regional_endpoint} />
+                            )}
+                            {appTypeSpec.bot_defense_setting.policy && (
+                              <DetailItem label="Policy" value={appTypeSpec.bot_defense_setting.policy.name} />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {appTypeSpec?.client_side_defense?.policy && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <Shield className="w-4 h-4 text-teal-400" />
+                          Client-Side Defense
+                        </h4>
+                        <div className="bg-slate-700/30 rounded-lg p-4">
+                          <DetailItem label="Policy" value={appTypeSpec.client_side_defense.policy.name} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                      {state.appSetting && (
+                        <button
+                          onClick={() => setJsonModal({ title: `App Setting: ${state.appSetting!.metadata?.name || state.appSetting!.name}`, data: state.appSetting })}
+                          className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
+                        >
+                          <Code className="w-4 h-4" /> View App Setting JSON
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setJsonModal({ title: `App Type: ${appTypeName}`, data: state.appType })}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
+                      >
+                        <Code className="w-4 h-4" /> View App Type JSON
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+              );
+            })()}
+
+            {spec?.domains && spec.domains.length > 0 && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                  <Globe className="w-5 h-5 text-blue-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Domains & Listeners</h2>
+                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                    {spec.domains.length} domain{spec.domains.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {spec.domains.map(domain => (
+                      <div
+                        key={domain}
+                        className="flex items-center gap-3 p-4 bg-slate-700/30 rounded-lg border border-slate-700/50"
+                      >
+                        <Globe className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-slate-200 font-medium truncate">{domain}</div>
+                          <div className="text-xs text-slate-500">
+                            {spec.https_auto_cert || spec.https ? 'HTTPS' : 'HTTP'} : Port {spec.https_auto_cert || spec.https ? '443' : '80'}
+                          </div>
+                        </div>
+                        <a
+                          href={`https://${domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <DetailItem label="HSTS Header" value={spec.add_hsts_header ? 'Enabled' : 'Disabled'} enabled={spec.add_hsts_header} />
+                    <DetailItem label="HTTP Redirect" value={spec.http_redirect ? 'Enabled' : 'Disabled'} enabled={spec.http_redirect} />
+                    <DetailItem label="WebSocket" value={spec.enable_websocket ? 'Enabled' : 'Disabled'} enabled={spec.enable_websocket} />
+                    <DetailItem label="Compression" value={spec.enable_automatic_compression ? 'Enabled' : 'Disabled'} enabled={spec.enable_automatic_compression} />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('routes')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Route className="w-5 h-5 text-cyan-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Routes Configuration</h2>
+                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                    {state.routes.length} route{state.routes.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {expandedSections.has('routes') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('routes') && (
+                <div className="p-6 space-y-4">
+                  {spec?.default_route_pools && spec.default_route_pools.length > 0 && (
+                    <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50 mb-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Database className="w-4 h-4 text-slate-400" />
+                        <span className="text-sm font-medium text-slate-300">Default Route Pools</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {spec.default_route_pools.map((p, i) => (
+                          <span key={i} className="px-3 py-1.5 bg-slate-800 rounded-lg text-sm text-slate-300 border border-slate-600">
+                            {p.pool?.name}
+                            {p.weight && <span className="text-slate-500 ml-1">(weight: {p.weight})</span>}
+                            {p.priority && <span className="text-slate-500 ml-1">(priority: {p.priority})</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {state.routes.length === 0 ? (
+                    <p className="text-slate-500 text-center py-8">No custom routes defined - using default route pools</p>
+                  ) : (
+                    state.routes.map((r, i) => {
+                      const typeInfo = getRouteTypeLabel(r.type);
+                      const pathInfo = getPathMatchLabel(r.pathMatch);
+                      const rawRoute = lb.spec?.routes?.[i];
+
+                      return (
+                        <div key={i} className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <span className="flex items-center justify-center w-8 h-8 bg-slate-800 rounded-lg text-slate-400 font-mono text-sm">
+                                {r.index + 1}
+                              </span>
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${typeInfo.color}`}>
+                                    {typeInfo.text}
+                                  </span>
+                                  <span className="px-2 py-0.5 bg-slate-800 rounded text-xs text-slate-400" title={pathInfo.text}>
+                                    {pathInfo.symbol} {pathInfo.text}
+                                  </span>
+                                </div>
+                                <code className="text-lg text-slate-200 font-mono">{r.path}</code>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setJsonModal({ title: `Route ${r.index + 1} Configuration`, data: rawRoute })}
+                              className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                            >
+                              <Code className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                            <div>
+                              <span className="text-xs text-slate-500 block mb-1">HTTP Methods</span>
+                              <div className="flex flex-wrap gap-1">
+                                {r.methods.map(m => (
+                                  <span key={m} className="px-2 py-0.5 bg-slate-800 rounded text-xs text-slate-300 font-mono">
+                                    {m}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {r.type === 'simple' && (
+                              <>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Origin Pools</span>
+                                  {r.origins.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {r.origins.map((o, j) => (
+                                        <span key={j} className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-xs">
+                                          {o.name}
+                                          {o.weight && <span className="opacity-70"> ({o.weight})</span>}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-500 text-sm">Using default pools</span>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Route WAF</span>
+                                  {r.waf?.disabled ? (
+                                    <span className="flex items-center gap-1 text-red-400 text-sm">
+                                      <ShieldOff className="w-3 h-3" /> Disabled
+                                    </span>
+                                  ) : r.waf?.name ? (
+                                    <span className="flex items-center gap-1 text-blue-400 text-sm">
+                                      <Shield className="w-3 h-3" /> {r.waf.name}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500 text-sm">Inherited from LB</span>
+                                  )}
+                                </div>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Timeout</span>
+                                  <span className="text-slate-300 text-sm">
+                                    {r.timeout ? (r.timeout >= 1000 ? `${r.timeout / 1000}s` : `${r.timeout}ms`) : 'Default'}
+                                  </span>
+                                </div>
+                              </>
+                            )}
+
+                            {r.type === 'redirect' && (
+                              <>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Redirect To</span>
+                                  <span className="text-amber-400 text-sm flex items-center gap-1">
+                                    <ArrowRight className="w-3 h-3" />
+                                    {r.redirectConfig?.host || r.redirectConfig?.path || '-'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Response Code</span>
+                                  <span className="text-slate-300 text-sm">{r.redirectConfig?.code || '301'}</span>
+                                </div>
+                              </>
+                            )}
+
+                            {r.type === 'direct_response' && (
+                              <>
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Response Code</span>
+                                  <span className="text-violet-400 text-sm font-mono">HTTP {r.directResponse?.code}</span>
+                                </div>
+                                <div className="col-span-2">
+                                  <span className="text-xs text-slate-500 block mb-1">Response Body</span>
+                                  <span className="text-slate-300 text-sm truncate block">
+                                    {r.directResponse?.body ? (r.directResponse.body.length > 50 ? r.directResponse.body.substring(0, 50) + '...' : r.directResponse.body) : 'Empty'}
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          {(r.headerMatchers?.length || r.queryParams?.length || r.corsPolicy || r.retries) && (
+                            <div className="pt-3 border-t border-slate-700/50 grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {r.headerMatchers && r.headerMatchers.length > 0 && (
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Header Matchers</span>
+                                  <span className="text-slate-300 text-sm">{r.headerMatchers.length} rule(s)</span>
+                                </div>
+                              )}
+                              {r.queryParams && r.queryParams.length > 0 && (
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Query Params</span>
+                                  <span className="text-slate-300 text-sm">{r.queryParams.length} rule(s)</span>
+                                </div>
+                              )}
+                              {r.corsPolicy && (
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">CORS Policy</span>
+                                  <span className="text-emerald-400 text-sm">Configured</span>
+                                </div>
+                              )}
+                              {r.retries && (
+                                <div>
+                                  <span className="text-xs text-slate-500 block mb-1">Retry Policy</span>
+                                  <span className="text-emerald-400 text-sm">Configured</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {r.advancedOptions && (
+                            <div className="pt-3 border-t border-slate-700/50">
+                              <span className="text-xs text-slate-500 block mb-2">Advanced Options</span>
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                {r.timeout !== undefined && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Timeout</span>
+                                    <span className="text-slate-300 text-sm">{r.timeout}ms</span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.hostRewrite && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Host Rewrite</span>
+                                    <span className="text-slate-300 text-sm">{r.advancedOptions.hostRewrite === 'auto' ? 'Auto' : (r.advancedOptions.hostRewrite === 'disabled' ? 'Disabled' : r.advancedOptions.hostRewrite)}</span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.priority && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Priority</span>
+                                    <span className="text-slate-300 text-sm">{r.advancedOptions.priority}</span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.webSocket !== null && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">WebSocket</span>
+                                    <span className={`text-sm ${r.advancedOptions.webSocket ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                      {r.advancedOptions.webSocket ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.spdy !== null && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">SPDY</span>
+                                    <span className={`text-sm ${r.advancedOptions.spdy ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                      {r.advancedOptions.spdy ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.mirroring !== null && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Mirroring</span>
+                                    <span className={`text-sm ${r.advancedOptions.mirroring ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                      {r.advancedOptions.mirroring ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                  </div>
+                                )}
+                                {(r.advancedOptions.requestHeaders || 0) > 0 && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Req Headers</span>
+                                    <span className="text-blue-400 text-sm">+{r.advancedOptions.requestHeaders}</span>
+                                  </div>
+                                )}
+                                {(r.advancedOptions.responseHeaders || 0) > 0 && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Resp Headers</span>
+                                    <span className="text-emerald-400 text-sm">+{r.advancedOptions.responseHeaders}</span>
+                                  </div>
+                                )}
+                                {(r.advancedOptions.requestCookies || 0) > 0 && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Req Cookies</span>
+                                    <span className="text-slate-300 text-sm">{r.advancedOptions.requestCookies}</span>
+                                  </div>
+                                )}
+                                {(r.advancedOptions.responseCookies || 0) > 0 && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Resp Cookies</span>
+                                    <span className="text-slate-300 text-sm">{r.advancedOptions.responseCookies}</span>
+                                  </div>
+                                )}
+                                {r.advancedOptions.botDefense && (
+                                  <div>
+                                    <span className="text-xs text-slate-500 block">Bot Defense JS</span>
+                                    <span className="text-emerald-400 text-sm">Inherited</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('origins')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Server className="w-5 h-5 text-emerald-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Origin Pools & Health Checks</h2>
+                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                    {state.originPools.size} pool{state.originPools.size !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                {expandedSections.has('origins') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('origins') && (
+                <div className="p-6 space-y-4">
+                  {Array.from(state.originPools.entries()).map(([name, pool]) => {
+                    const poolSpec = pool.spec;
+                    const originCount = poolSpec?.origin_servers?.length || 0;
+
+                    let originType = 'Unknown';
+                    const originDetails: Array<{ value: string; labels?: Record<string, string> }> = [];
+                    if (poolSpec?.origin_servers?.length) {
+                      const first = poolSpec.origin_servers[0];
+                      if (first.public_ip) {
+                        originType = 'Public IP';
+                        poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.public_ip?.ip || '' }));
+                      } else if (first.public_name) {
+                        originType = 'Public DNS';
+                        poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.public_name?.dns_name || '' }));
+                      } else if (first.private_ip) {
+                        originType = 'Private IP';
+                        poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.private_ip?.ip || '' }));
+                      } else if (first.private_name) {
+                        originType = 'Private DNS';
+                        poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.private_name?.dns_name || '' }));
+                      } else if (first.k8s_service) {
+                        originType = 'K8s Service';
+                        poolSpec.origin_servers.forEach(o => originDetails.push({ value: o.k8s_service?.service_name || '' }));
+                      }
+                    }
+
+                    const healthCheckRefs = poolSpec?.healthcheck || [];
+
+                    return (
+                      <div key={name} className="bg-slate-700/30 rounded-xl border border-slate-700/50 overflow-hidden">
+                        <div className="p-5">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <Server className="w-6 h-6 text-emerald-400" />
+                              <div>
+                                <h3 className="font-semibold text-slate-200 text-lg">{name}</h3>
+                                <span className="text-xs text-slate-500">{pool.metadata?.namespace}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setJsonModal({ title: `${name} Configuration`, data: pool })}
+                              className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                            >
+                              <Code className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-4">
+                            <DetailItem label="Origin Type" value={originType} />
+                            <DetailItem label="Port" value={poolSpec?.port?.toString() || 'N/A'} />
+                            <DetailItem label="TLS to Origin" value={poolSpec?.use_tls ? 'Enabled' : 'Disabled'} enabled={!!poolSpec?.use_tls} />
+                            <DetailItem label="LB Algorithm" value={formatAlgorithm(poolSpec?.loadbalancer_algorithm)} />
+                            <DetailItem label="Endpoint Selection" value={poolSpec?.endpoint_selection?.replace(/_/g, ' ') || 'Default'} />
+                            <DetailItem label="Health Checks" value={healthCheckRefs.length.toString()} />
+                          </div>
+
+                          {poolSpec?.use_tls && typeof poolSpec.use_tls === 'object' && (
+                            <div className="mb-4 p-4 bg-slate-800/30 rounded-lg border border-slate-700/30">
+                              <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                <Lock className="w-3.5 h-3.5" /> TLS Settings
+                              </span>
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                <DetailItem
+                                  label="SNI"
+                                  value={poolSpec.use_tls.use_host_header_as_sni !== undefined ? 'Use Host Header' : (poolSpec.use_tls.sni || 'Default')}
+                                  small
+                                />
+                                <DetailItem
+                                  label="TLS Security"
+                                  value={
+                                    poolSpec.use_tls.tls_config?.default_security !== undefined ? 'Default' :
+                                    poolSpec.use_tls.tls_config?.medium_security !== undefined ? 'Medium' :
+                                    poolSpec.use_tls.tls_config?.low_security !== undefined ? 'Low' :
+                                    poolSpec.use_tls.tls_config?.custom_security !== undefined ? 'Custom' : 'Default'
+                                  }
+                                  small
+                                />
+                                <DetailItem
+                                  label="Server Verification"
+                                  value={
+                                    poolSpec.use_tls.skip_server_verification !== undefined ? 'Skip' :
+                                    poolSpec.use_tls.volterra_trusted_ca !== undefined ? 'Volterra Trusted CA' :
+                                    poolSpec.use_tls.use_server_verification ? 'Custom CA' : 'Default'
+                                  }
+                                  enabled={poolSpec.use_tls.skip_server_verification === undefined}
+                                  warning={poolSpec.use_tls.skip_server_verification !== undefined}
+                                  small
+                                />
+                                <DetailItem
+                                  label="mTLS"
+                                  value={poolSpec.use_tls.use_mtls ? 'Enabled' : 'Disabled'}
+                                  enabled={!!poolSpec.use_tls.use_mtls}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Session Key Caching"
+                                  value={
+                                    poolSpec.use_tls.disable_session_key_caching !== undefined ? 'Disabled' :
+                                    poolSpec.use_tls.default_session_key_caching !== undefined ? 'Default' : 'Enabled'
+                                  }
+                                  small
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="mb-4">
+                            <span className="text-xs text-slate-500 block mb-2">Origin Servers ({poolSpec?.origin_servers?.length || 0})</span>
+                            <div className="space-y-3">
+                              {poolSpec?.origin_servers?.map((server, idx) => {
+                                const siteLocator = server.private_ip?.site_locator || server.private_name?.site_locator || server.k8s_service?.site_locator;
+                                const vs = siteLocator?.virtual_site;
+                                const site = siteLocator?.site;
+                                const virtualSiteData = vs ? state.virtualSites.get(`${vs.namespace}/${vs.name}`) : null;
+                                const networkType = server.private_ip?.outside_network !== undefined ? 'Outside Network' :
+                                                  server.private_ip?.inside_network !== undefined ? 'Inside Network' :
+                                                  server.private_name?.outside_network !== undefined ? 'Outside Network' :
+                                                  server.private_name?.inside_network !== undefined ? 'Inside Network' : null;
+                                const serverValue = server.public_ip?.ip || server.public_name?.dns_name ||
+                                                  server.private_ip?.ip || server.private_name?.dns_name ||
+                                                  server.k8s_service?.service_name || 'N/A';
+
+                                return (
+                                  <div key={idx} className="p-4 bg-slate-800/50 rounded-lg">
+                                    <div className="flex items-center gap-3 mb-3">
+                                      <Database className="w-4 h-4 text-emerald-400" />
+                                      <code className="text-slate-200 font-medium">{serverValue}</code>
+                                      {networkType && (
+                                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">{networkType}</span>
+                                      )}
+                                    </div>
+                                    {(vs || site) && (
+                                      <div className="pl-7 space-y-2">
+                                        {vs && (
+                                          <div className="flex items-center gap-2 text-sm">
+                                            <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                                            <span className="text-slate-400">Virtual Site:</span>
+                                            <span className="text-slate-200">{vs.namespace}/{vs.name}</span>
+                                          </div>
+                                        )}
+                                        {site && (
+                                          <div className="flex items-center gap-2 text-sm">
+                                            <Network className="w-3.5 h-3.5 text-cyan-400" />
+                                            <span className="text-slate-400">Site:</span>
+                                            <span className="text-slate-200">{site.namespace}/{site.name}</span>
+                                          </div>
+                                        )}
+                                        {virtualSiteData?.spec && (
+                                          <div className="mt-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
+                                            <div className="flex items-center gap-2 mb-2">
+                                              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                                              <span className="text-xs font-medium text-slate-300">Virtual Site Details</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                              <div>
+                                                <span className="text-slate-500">Site Type:</span>
+                                                <span className="text-slate-300 ml-2">
+                                                  {virtualSiteData.spec.site_type === 'CUSTOMER_EDGE' ? 'Customer Edge (CE)' :
+                                                   virtualSiteData.spec.site_type === 'REGIONAL_EDGE' ? 'Regional Edge (RE)' :
+                                                   virtualSiteData.spec.site_type || 'N/A'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            {virtualSiteData.spec.site_selector?.expressions && virtualSiteData.spec.site_selector.expressions.length > 0 && (
+                                              <div className="mt-2">
+                                                <span className="text-xs text-slate-500 block mb-1">Site Selector Expression</span>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                  {virtualSiteData.spec.site_selector.expressions.map((expr, exprIdx) => {
+                                                    const parts = expr.split(' ');
+                                                    if (parts.length >= 3) {
+                                                      const key = parts[0];
+                                                      const op = parts[1];
+                                                      const values = parts.slice(2).join(', ');
+                                                      return (
+                                                        <div key={exprIdx} className="flex items-center gap-1 text-xs">
+                                                          <span className="px-2 py-1 bg-slate-700/70 text-slate-300 rounded">{key}</span>
+                                                          <span className="text-slate-500">{op}</span>
+                                                          <span className="px-2 py-1 bg-cyan-500/10 text-cyan-400 rounded">{values}</span>
+                                                        </div>
+                                                      );
+                                                    }
+                                                    return (
+                                                      <span key={exprIdx} className="px-2 py-1 bg-slate-700/70 text-slate-300 rounded text-xs">{expr}</span>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {healthCheckRefs.length > 0 && (
+                            <div className="pt-4 border-t border-slate-700/50">
+                              <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                <Activity className="w-4 h-4" /> Health Check Configuration
+                              </span>
+                              <div className="space-y-3">
+                                {healthCheckRefs.map((hcRef, hcIndex) => {
+                                  const hc = state.healthChecks.get(hcRef.name);
+                                  const hcSpec = hc?.spec;
+                                  const isHttp = !!hcSpec?.http_health_check;
+
+                                  return (
+                                    <div key={hcIndex} className="p-4 bg-slate-800/50 rounded-lg">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                          <Activity className="w-4 h-4 text-rose-400" />
+                                          <span className="text-slate-200 font-medium">{hcRef.name}</span>
+                                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                            {isHttp ? 'HTTP' : 'TCP'}
+                                          </span>
+                                        </div>
+                                        {hc && (
+                                          <button
+                                            onClick={() => setJsonModal({ title: `${hcRef.name} Health Check`, data: hc })}
+                                            className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                                          >
+                                            <Code className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      {hc ? (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                          {isHttp && (
+                                            <>
+                                              <DetailItem label="Path" value={hcSpec?.http_health_check?.path || '/'} small />
+                                              <DetailItem label="Host Header" value={hcSpec?.http_health_check?.host_header || 'Origin'} small />
+                                              <DetailItem
+                                                label="Expected Status"
+                                                value={hcSpec?.http_health_check?.expected_status_codes?.join(', ') || '200'}
+                                                small
+                                              />
+                                            </>
+                                          )}
+                                          <DetailItem label="Interval" value={hcSpec?.interval ? `${hcSpec.interval}s` : '5s'} small />
+                                          <DetailItem label="Timeout" value={hcSpec?.timeout ? `${hcSpec.timeout}s` : '3s'} small />
+                                          <DetailItem label="Unhealthy Threshold" value={hcSpec?.unhealthy_threshold?.toString() || '3'} small />
+                                          <DetailItem label="Healthy Threshold" value={hcSpec?.healthy_threshold?.toString() || '2'} small />
+                                          {hcSpec?.jitter_percent !== undefined && (
+                                            <DetailItem label="Jitter" value={`${hcSpec.jitter_percent}%`} small />
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="text-slate-500 text-sm">Health check details not available</p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {poolSpec?.advanced_options && (
+                            <div className="pt-4 border-t border-slate-700/50">
+                              <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                <Settings className="w-4 h-4" /> Advanced Options
+                              </span>
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                {poolSpec.advanced_options.connection_timeout !== undefined && (
+                                  <DetailItem
+                                    label="Connection Timeout"
+                                    value={`${poolSpec.advanced_options.connection_timeout}ms`}
+                                    small
+                                  />
+                                )}
+                                {poolSpec.advanced_options.http_idle_timeout !== undefined && (
+                                  <DetailItem
+                                    label="HTTP Idle Timeout"
+                                    value={`${poolSpec.advanced_options.http_idle_timeout}ms`}
+                                    small
+                                  />
+                                )}
+                                <DetailItem
+                                  label="Circuit Breaker"
+                                  value={poolSpec.advanced_options.circuit_breaker ? 'Custom' : poolSpec.advanced_options.default_circuit_breaker ? 'Default' : 'Disabled'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Outlier Detection"
+                                  value={poolSpec.advanced_options.outlier_detection ? 'Custom' : poolSpec.advanced_options.disable_outlier_detection ? 'Disabled' : 'Default'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Panic Threshold"
+                                  value={poolSpec.advanced_options.panic_threshold !== undefined ? `${poolSpec.advanced_options.panic_threshold}%` : poolSpec.advanced_options.no_panic_threshold ? 'Disabled' : 'Default'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="HTTP Config"
+                                  value={poolSpec.advanced_options.http2_config ? 'HTTP/2' : poolSpec.advanced_options.http1_config ? 'HTTP/1.1' : 'Auto'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="LB Source IP Persist"
+                                  value={poolSpec.advanced_options.enable_lb_source_ip_persistance ? 'Enabled' : 'Disabled'}
+                                  enabled={!!poolSpec.advanced_options.enable_lb_source_ip_persistance}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Proxy Protocol"
+                                  value={poolSpec.advanced_options.proxy_protocol_v1 ? 'v1' : poolSpec.advanced_options.proxy_protocol_v2 ? 'v2' : 'Disabled'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Subsets"
+                                  value={poolSpec.advanced_options.enable_subsets ? 'Enabled' : 'Disabled'}
+                                  small
+                                />
+                              </div>
+
+                              {poolSpec.advanced_options.circuit_breaker && (
+                                <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-400 block mb-2">Circuit Breaker Settings</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {poolSpec.advanced_options.circuit_breaker.max_connections !== undefined && (
+                                      <DetailItem label="Max Connections" value={poolSpec.advanced_options.circuit_breaker.max_connections.toString()} small />
+                                    )}
+                                    {poolSpec.advanced_options.circuit_breaker.max_pending_requests !== undefined && (
+                                      <DetailItem label="Max Pending Requests" value={poolSpec.advanced_options.circuit_breaker.max_pending_requests.toString()} small />
+                                    )}
+                                    {poolSpec.advanced_options.circuit_breaker.max_requests !== undefined && (
+                                      <DetailItem label="Max Requests" value={poolSpec.advanced_options.circuit_breaker.max_requests.toString()} small />
+                                    )}
+                                    {poolSpec.advanced_options.circuit_breaker.max_retries !== undefined && (
+                                      <DetailItem label="Max Retries" value={poolSpec.advanced_options.circuit_breaker.max_retries.toString()} small />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {poolSpec.advanced_options.outlier_detection && (
+                                <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-400 block mb-2">Outlier Detection Settings</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {poolSpec.advanced_options.outlier_detection.consecutive_5xx !== undefined && (
+                                      <DetailItem label="Consecutive 5xx" value={poolSpec.advanced_options.outlier_detection.consecutive_5xx.toString()} small />
+                                    )}
+                                    {poolSpec.advanced_options.outlier_detection.consecutive_gateway_failure !== undefined && (
+                                      <DetailItem label="Gateway Failures" value={poolSpec.advanced_options.outlier_detection.consecutive_gateway_failure.toString()} small />
+                                    )}
+                                    {poolSpec.advanced_options.outlier_detection.interval !== undefined && (
+                                      <DetailItem label="Interval" value={`${poolSpec.advanced_options.outlier_detection.interval}ms`} small />
+                                    )}
+                                    {poolSpec.advanced_options.outlier_detection.base_ejection_time !== undefined && (
+                                      <DetailItem label="Base Ejection Time" value={`${poolSpec.advanced_options.outlier_detection.base_ejection_time}ms`} small />
+                                    )}
+                                    {poolSpec.advanced_options.outlier_detection.max_ejection_percent !== undefined && (
+                                      <DetailItem label="Max Ejection %" value={`${poolSpec.advanced_options.outlier_detection.max_ejection_percent}%`} small />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {poolSpec?.use_tls && typeof poolSpec.use_tls === 'object' && (
+                            <div className="pt-4 border-t border-slate-700/50">
+                              <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                <Lock className="w-4 h-4" /> TLS to Origin Settings
+                              </span>
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                <DetailItem
+                                  label="SNI"
+                                  value={poolSpec.use_tls.sni || (poolSpec.use_tls.use_host_header_as_sni ? 'Use Host Header' : 'Default')}
+                                  small
+                                />
+                                <DetailItem
+                                  label="TLS Security"
+                                  value={
+                                    poolSpec.use_tls.tls_config?.custom_security ? 'Custom' :
+                                    poolSpec.use_tls.tls_config?.low_security ? 'Low' :
+                                    poolSpec.use_tls.tls_config?.medium_security ? 'Medium' : 'Default'
+                                  }
+                                  small
+                                />
+                                <DetailItem
+                                  label="Server Verification"
+                                  value={poolSpec.use_tls.skip_server_verification ? 'Skipped' : poolSpec.use_tls.volterra_trusted_ca ? 'F5 Trusted CA' : poolSpec.use_tls.use_server_verification ? 'Custom CA' : 'Default'}
+                                  small
+                                />
+                                <DetailItem
+                                  label="mTLS"
+                                  value={poolSpec.use_tls.use_mtls ? 'Enabled' : 'Disabled'}
+                                  enabled={!!poolSpec.use_tls.use_mtls}
+                                  small
+                                />
+                                <DetailItem
+                                  label="Session Key Caching"
+                                  value={poolSpec.use_tls.disable_session_key_caching ? 'Disabled' : 'Enabled'}
+                                  small
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {poolSpec?.upstream_conn_pool_reuse_type && (
+                            <div className="pt-4 border-t border-slate-700/50">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-500">Connection Pool Reuse:</span>
+                                <span className={`text-xs font-medium ${poolSpec.upstream_conn_pool_reuse_type.enable_conn_pool_reuse ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                  {poolSpec.upstream_conn_pool_reuse_type.enable_conn_pool_reuse ? 'Enabled' : 'Disabled'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('security')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Shield className="w-5 h-5 text-amber-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Security Configuration</h2>
+                </div>
+                {expandedSections.has('security') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('security') && (
+                <div className="p-6 space-y-6">
+                  <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Shield className="w-6 h-6 text-amber-400" />
+                      <h3 className="text-lg font-semibold text-slate-200">Web Application Firewall (WAF)</h3>
+                    </div>
+
+                    {spec?.disable_waf ? (
+                      <div className="flex items-center gap-2 text-red-400">
+                        <ShieldOff className="w-5 h-5" />
+                        <span>WAF is disabled for this Load Balancer</span>
+                      </div>
+                    ) : spec?.app_firewall ? (
+                      <div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                          <DetailItem label="Policy Name" value={spec.app_firewall.name} />
+                          <DetailItem label="Namespace" value={spec.app_firewall.namespace || state.namespace} />
+                          <DetailItem
+                            label="Mode"
+                            value={getWafMode(state.wafPolicies.get(spec.app_firewall.name))}
+                            enabled={getWafMode(state.wafPolicies.get(spec.app_firewall.name)) === 'Blocking'}
+                            warning={getWafMode(state.wafPolicies.get(spec.app_firewall.name)) === 'Monitoring'}
+                          />
+                          <DetailItem
+                            label="Shared"
+                            value={state.wafPolicies.get(spec.app_firewall.name)?.shared ? 'Yes' : 'No'}
+                          />
+                        </div>
+
+                        {(() => {
+                          const waf = state.wafPolicies.get(spec.app_firewall.name);
+                          const wafSpec = waf?.spec;
+                          if (!wafSpec) return null;
+
+                          const formatRiskAction = (action?: string) => {
+                            if (!action) return 'Default';
+                            if (action === 'AI_BLOCK') return 'Block';
+                            if (action === 'AI_REPORT') return 'Report';
+                            return action.replace('AI_', '');
+                          };
+
+                          return (
+                            <div className="space-y-4">
+                              {wafSpec.ai_risk_based_blocking && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                    <Zap className="w-3.5 h-3.5" /> Security Policy: AI Risk-Based Blocking
+                                  </span>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <DetailItem
+                                      label="High Risk"
+                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.high_risk_action)}
+                                      enabled={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_BLOCK'}
+                                      warning={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_REPORT'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Medium Risk"
+                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.medium_risk_action)}
+                                      enabled={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_BLOCK'}
+                                      warning={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_REPORT'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Low Risk"
+                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.low_risk_action)}
+                                      enabled={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_BLOCK'}
+                                      warning={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_REPORT'}
+                                      small
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {wafSpec.detection_settings && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+                                  <span className="text-xs text-slate-500 block">Detection Settings</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                    <DetailItem
+                                      label="Threat Campaigns"
+                                      value={wafSpec.detection_settings.disable_threat_campaigns !== undefined ? 'Disabled' : 'Enabled'}
+                                      enabled={wafSpec.detection_settings.disable_threat_campaigns === undefined}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Suppression"
+                                      value={wafSpec.detection_settings.disable_suppression !== undefined ? 'Disabled' : 'Enabled'}
+                                      enabled={wafSpec.detection_settings.disable_suppression === undefined}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Signature Accuracy"
+                                      value={
+                                        wafSpec.detection_settings.signature_selection_setting?.high_medium_low_accuracy_signatures !== undefined ? 'High/Med/Low' :
+                                        wafSpec.detection_settings.signature_selection_setting?.only_high_accuracy_signatures !== undefined ? 'High Only' : 'High/Med'
+                                      }
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Signature Staging"
+                                      value={
+                                        wafSpec.detection_settings.stage_new_signatures?.staging_period
+                                          ? `${wafSpec.detection_settings.stage_new_signatures.staging_period} days`
+                                          : 'Disabled'
+                                      }
+                                      enabled={!!wafSpec.detection_settings.stage_new_signatures?.staging_period}
+                                      small
+                                    />
+                                    {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+                                      <DetailItem
+                                        label="Disabled Attack Types"
+                                        value={wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length.toString()}
+                                        warning
+                                        small
+                                      />
+                                    )}
+                                    {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+                                      <DetailItem
+                                        label="Disabled Violations"
+                                        value={wafSpec.detection_settings.violation_settings.disabled_violation_types.length.toString()}
+                                        warning
+                                        small
+                                      />
+                                    )}
+                                  </div>
+
+                                  {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+                                    <div className="pt-3 border-t border-slate-700/50">
+                                      <span className="text-xs text-slate-500 block mb-2">Disabled Attack Types</span>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.map((at, idx) => (
+                                          <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                            {at.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+                                    <div className="pt-3 border-t border-slate-700/50">
+                                      <span className="text-xs text-slate-500 block mb-2">Disabled Violation Types</span>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {wafSpec.detection_settings.violation_settings.disabled_violation_types.map((vt, idx) => (
+                                          <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                            {vt.replace('VIOL_', '').replace(/_/g, ' ')}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {wafSpec.detection_settings.bot_protection_setting && (
+                                    <div className="pt-3 border-t border-slate-700/50">
+                                      <span className="text-xs text-slate-500 block mb-2">Bot Protection Settings</span>
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <DetailItem
+                                          label="Malicious Bots"
+                                          value={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action || 'Default'}
+                                          enabled={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                                          warning={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Suspicious Bots"
+                                          value={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action || 'Default'}
+                                          enabled={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Good Bots"
+                                          value={wafSpec.detection_settings.bot_protection_setting.good_bot_action || 'Default'}
+                                          small
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {wafSpec.bot_protection_setting && !wafSpec.detection_settings?.bot_protection_setting && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">Bot Protection Settings</span>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <DetailItem
+                                      label="Malicious Bots"
+                                      value={wafSpec.bot_protection_setting.malicious_bot_action || 'Default'}
+                                      enabled={wafSpec.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                                      warning={wafSpec.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Suspicious Bots"
+                                      value={wafSpec.bot_protection_setting.suspicious_bot_action || 'Default'}
+                                      enabled={wafSpec.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="Good Bots"
+                                      value={wafSpec.bot_protection_setting.good_bot_action || 'Default'}
+                                      small
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+                                <span className="text-xs text-slate-500 block">Response Settings</span>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  <DetailItem
+                                    label="Response Codes"
+                                    value={wafSpec.allow_all_response_codes !== undefined ? 'Allow All' : (wafSpec.allowed_response_codes?.response_code?.length ? `${wafSpec.allowed_response_codes.response_code.length} codes` : 'Default')}
+                                    small
+                                  />
+                                  <DetailItem
+                                    label="Anonymization"
+                                    value={wafSpec.default_anonymization !== undefined ? 'Default' : (wafSpec.custom_anonymization ? 'Custom' : 'None')}
+                                    small
+                                  />
+                                  <DetailItem
+                                    label="Blocking Page"
+                                    value={wafSpec.use_default_blocking_page !== undefined ? 'Default' : ((wafSpec.blocking_page?.blocking_page || wafSpec.blocking_page?.blocking_page_body) ? 'Custom' : 'Default')}
+                                    small
+                                  />
+                                  {wafSpec.blocking_page?.response_code && (
+                                    <DetailItem
+                                      label="Blocking Code"
+                                      value={wafSpec.blocking_page.response_code}
+                                      small
+                                    />
+                                  )}
+                                </div>
+                                {wafSpec.allowed_response_codes?.response_code && wafSpec.allowed_response_codes.response_code.length > 0 && (
+                                  <div className="pt-3 border-t border-slate-700/50">
+                                    <span className="text-xs text-slate-500 block mb-2">Allowed Response Codes</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {wafSpec.allowed_response_codes.response_code.map((code, idx) => (
+                                        <span key={idx} className={`px-2 py-1 rounded text-xs font-mono ${
+                                          code >= 200 && code < 300 ? 'bg-emerald-500/10 text-emerald-400' :
+                                          code >= 300 && code < 400 ? 'bg-blue-500/10 text-blue-400' :
+                                          code >= 400 && code < 500 ? 'bg-amber-500/10 text-amber-400' :
+                                          code >= 500 ? 'bg-red-500/10 text-red-400' : 'bg-slate-700 text-slate-400'
+                                        }`}>
+                                          {code}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {wafSpec.http_protocol_settings && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {wafSpec.http_protocol_settings.max_url_length && (
+                                      <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
+                                    )}
+                                    {wafSpec.http_protocol_settings.max_query_string_length && (
+                                      <DetailItem label="Max Query String" value={`${wafSpec.http_protocol_settings.max_query_string_length}`} small />
+                                    )}
+                                    {wafSpec.http_protocol_settings.max_request_body_size && (
+                                      <DetailItem label="Max Body Size" value={`${wafSpec.http_protocol_settings.max_request_body_size}`} small />
+                                    )}
+                                    {wafSpec.http_protocol_settings.max_headers && (
+                                      <DetailItem label="Max Headers" value={`${wafSpec.http_protocol_settings.max_headers}`} small />
+                                    )}
+                                    <DetailItem
+                                      label="Unknown Content Types"
+                                      value={wafSpec.http_protocol_settings.allow_unknown_content_types ? 'Allowed' : 'Blocked'}
+                                      enabled={wafSpec.http_protocol_settings.allow_unknown_content_types}
+                                      small
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {wafSpec.data_leak_prevention_setting && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">Data Leak Prevention</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <DetailItem
+                                      label="Credit Card Numbers"
+                                      value={wafSpec.data_leak_prevention_setting.credit_card_numbers || 'Not configured'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="US SSN"
+                                      value={wafSpec.data_leak_prevention_setting.us_social_security_numbers || 'Not configured'}
+                                      small
+                                    />
+                                    {wafSpec.data_leak_prevention_setting.custom_patterns?.length && (
+                                      <DetailItem
+                                        label="Custom Patterns"
+                                        value={`${wafSpec.data_leak_prevention_setting.custom_patterns.length} pattern(s)`}
+                                        small
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {wafSpec.file_upload_restriction_setting && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">File Upload Restrictions</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <DetailItem
+                                      label="File Upload"
+                                      value={wafSpec.file_upload_restriction_setting.disable_file_upload ? 'Disabled' : 'Enabled'}
+                                      enabled={!wafSpec.file_upload_restriction_setting.disable_file_upload}
+                                      small
+                                    />
+                                    {wafSpec.file_upload_restriction_setting.max_file_size && (
+                                      <DetailItem label="Max File Size" value={`${wafSpec.file_upload_restriction_setting.max_file_size} bytes`} small />
+                                    )}
+                                    {wafSpec.file_upload_restriction_setting.allowed_file_types?.length && (
+                                      <DetailItem label="Allowed Types" value={wafSpec.file_upload_restriction_setting.allowed_file_types.length.toString()} small />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {wafSpec.cookie_protection_setting && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">Cookie Protection</span>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <DetailItem
+                                      label="Secure Attribute"
+                                      value={wafSpec.cookie_protection_setting.add_secure_attribute ? 'Added' : 'Not Added'}
+                                      enabled={wafSpec.cookie_protection_setting.add_secure_attribute}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="SameSite"
+                                      value={wafSpec.cookie_protection_setting.add_samesite_attribute || 'Not Set'}
+                                      small
+                                    />
+                                    <DetailItem
+                                      label="HttpOnly"
+                                      value={wafSpec.cookie_protection_setting.add_httponly_attribute ? 'Added' : 'Not Added'}
+                                      enabled={wafSpec.cookie_protection_setting.add_httponly_attribute}
+                                      small
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {wafSpec.graphql_settings?.enabled && (
+                                <div className="p-4 bg-slate-800/50 rounded-lg">
+                                  <span className="text-xs text-slate-500 block mb-3">GraphQL Settings</span>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <DetailItem label="Status" value="Enabled" enabled small />
+                                    {wafSpec.graphql_settings.max_depth && (
+                                      <DetailItem label="Max Depth" value={`${wafSpec.graphql_settings.max_depth}`} small />
+                                    )}
+                                    {wafSpec.graphql_settings.max_batched_queries && (
+                                      <DetailItem label="Max Batched" value={`${wafSpec.graphql_settings.max_batched_queries}`} small />
+                                    )}
+                                    {wafSpec.graphql_settings.max_total_length && (
+                                      <DetailItem label="Max Length" value={`${wafSpec.graphql_settings.max_total_length}`} small />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              <button
+                                onClick={() => setJsonModal({ title: 'WAF Policy Configuration', data: waf })}
+                                className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                              >
+                                <Code className="w-4 h-4" /> View WAF Policy JSON
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <ShieldOff className="w-5 h-5" />
+                        <span>No WAF policy configured</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {state.wafPolicies.size > 1 && (
+                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <Shield className="w-6 h-6 text-cyan-400" />
+                        <h3 className="text-lg font-semibold text-slate-200">Route-Level WAF Policies</h3>
+                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                          {state.wafPolicies.size - (spec?.app_firewall ? 1 : 0)} additional
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        {Array.from(state.wafPolicies.entries())
+                          .filter(([name]) => name !== spec?.app_firewall?.name)
+                          .map(([name, waf]) => {
+                            const wafSpec = waf.spec;
+                            const formatRiskAction = (action?: string) => {
+                              if (!action) return 'Default';
+                              if (action === 'AI_BLOCK') return 'Block';
+                              if (action === 'AI_REPORT') return 'Report';
+                              return action.replace('AI_', '');
+                            };
+                            return (
+                              <div key={name} className="p-5 bg-slate-800/40 rounded-lg border border-slate-700/30">
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="flex items-center gap-3">
+                                    <Shield className="w-5 h-5 text-cyan-400" />
+                                    <span className="text-slate-200 font-semibold text-lg">{name}</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      getWafMode(waf) === 'Blocking' ? 'bg-emerald-500/15 text-emerald-400' :
+                                      getWafMode(waf) === 'Monitoring' ? 'bg-amber-500/15 text-amber-400' :
+                                      getWafMode(waf) === 'AI Risk-Based' ? 'bg-blue-500/15 text-blue-400' :
+                                      'bg-slate-700 text-slate-400'
+                                    }`}>
+                                      {getWafMode(waf)}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => setJsonModal({ title: `${name} WAF Policy`, data: waf })}
+                                    className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                                  >
+                                    <Code className="w-4 h-4" />
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                  <DetailItem label="Policy Name" value={name} />
+                                  <DetailItem label="Namespace" value={waf.metadata?.namespace || 'N/A'} />
+                                  <DetailItem
+                                    label="Mode"
+                                    value={getWafMode(waf)}
+                                    enabled={getWafMode(waf) === 'Blocking'}
+                                    warning={getWafMode(waf) === 'Monitoring'}
+                                  />
+                                  <DetailItem label="Shared" value={waf.shared ? 'Yes' : 'No'} />
+                                </div>
+
+                                <div className="space-y-4">
+                                  {wafSpec?.ai_risk_based_blocking && (
+                                    <div className="p-4 bg-slate-800/50 rounded-lg">
+                                      <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+                                        <Zap className="w-3.5 h-3.5" /> Security Policy: AI Risk-Based Blocking
+                                      </span>
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <DetailItem
+                                          label="High Risk"
+                                          value={formatRiskAction(wafSpec.ai_risk_based_blocking.high_risk_action)}
+                                          enabled={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_BLOCK'}
+                                          warning={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_REPORT'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Medium Risk"
+                                          value={formatRiskAction(wafSpec.ai_risk_based_blocking.medium_risk_action)}
+                                          enabled={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_BLOCK'}
+                                          warning={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_REPORT'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Low Risk"
+                                          value={formatRiskAction(wafSpec.ai_risk_based_blocking.low_risk_action)}
+                                          enabled={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_BLOCK'}
+                                          warning={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_REPORT'}
+                                          small
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {wafSpec?.detection_settings && (
+                                    <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+                                      <span className="text-xs text-slate-500 block">Detection Settings</span>
+                                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                        <DetailItem
+                                          label="Threat Campaigns"
+                                          value={wafSpec.detection_settings.disable_threat_campaigns !== undefined ? 'Disabled' : 'Enabled'}
+                                          enabled={wafSpec.detection_settings.disable_threat_campaigns === undefined}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Suppression"
+                                          value={wafSpec.detection_settings.disable_suppression !== undefined ? 'Disabled' : 'Enabled'}
+                                          enabled={wafSpec.detection_settings.disable_suppression === undefined}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Signature Accuracy"
+                                          value={
+                                            wafSpec.detection_settings.signature_selection_setting?.high_medium_low_accuracy_signatures !== undefined ? 'High/Med/Low' :
+                                            wafSpec.detection_settings.signature_selection_setting?.only_high_accuracy_signatures !== undefined ? 'High Only' : 'High/Med'
+                                          }
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Signature Staging"
+                                          value={
+                                            wafSpec.detection_settings.stage_new_signatures?.staging_period
+                                              ? `${wafSpec.detection_settings.stage_new_signatures.staging_period} days`
+                                              : 'Disabled'
+                                          }
+                                          enabled={!!wafSpec.detection_settings.stage_new_signatures?.staging_period}
+                                          small
+                                        />
+                                        {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+                                          <DetailItem
+                                            label="Disabled Attack Types"
+                                            value={wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length.toString()}
+                                            warning
+                                            small
+                                          />
+                                        )}
+                                        {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+                                          <DetailItem
+                                            label="Disabled Violations"
+                                            value={wafSpec.detection_settings.violation_settings.disabled_violation_types.length.toString()}
+                                            warning
+                                            small
+                                          />
+                                        )}
+                                      </div>
+
+                                      {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+                                        <div className="pt-3 border-t border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-2">Disabled Attack Types</span>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.map((at, idx) => (
+                                              <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                                {at.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+                                        <div className="pt-3 border-t border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-2">Disabled Violation Types</span>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {wafSpec.detection_settings.violation_settings.disabled_violation_types.map((vt, idx) => (
+                                              <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                                {vt.replace('VIOL_', '').replace(/_/g, ' ')}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {wafSpec.detection_settings.bot_protection_setting && (
+                                        <div className="pt-3 border-t border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-2">Bot Protection Settings</span>
+                                          <div className="grid grid-cols-3 gap-3">
+                                            <DetailItem
+                                              label="Malicious Bots"
+                                              value={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action || 'Default'}
+                                              enabled={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                                              warning={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                                              small
+                                            />
+                                            <DetailItem
+                                              label="Suspicious Bots"
+                                              value={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action || 'Default'}
+                                              enabled={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                                              small
+                                            />
+                                            <DetailItem
+                                              label="Good Bots"
+                                              value={wafSpec.detection_settings.bot_protection_setting.good_bot_action || 'Default'}
+                                              small
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {wafSpec?.bot_protection_setting && !wafSpec.detection_settings?.bot_protection_setting && (
+                                    <div className="p-4 bg-slate-800/50 rounded-lg">
+                                      <span className="text-xs text-slate-500 block mb-3">Bot Protection Settings</span>
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <DetailItem
+                                          label="Malicious Bots"
+                                          value={wafSpec.bot_protection_setting.malicious_bot_action || 'Default'}
+                                          enabled={wafSpec.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                                          warning={wafSpec.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Suspicious Bots"
+                                          value={wafSpec.bot_protection_setting.suspicious_bot_action || 'Default'}
+                                          enabled={wafSpec.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                                          small
+                                        />
+                                        <DetailItem
+                                          label="Good Bots"
+                                          value={wafSpec.bot_protection_setting.good_bot_action || 'Default'}
+                                          small
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+                                    <span className="text-xs text-slate-500 block">Response Settings</span>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                      <DetailItem
+                                        label="Response Codes"
+                                        value={wafSpec?.allow_all_response_codes !== undefined ? 'Allow All' : (wafSpec?.allowed_response_codes?.response_code?.length ? `${wafSpec.allowed_response_codes.response_code.length} codes` : 'Default')}
+                                        small
+                                      />
+                                      <DetailItem
+                                        label="Anonymization"
+                                        value={wafSpec?.default_anonymization !== undefined ? 'Default' : (wafSpec?.custom_anonymization ? 'Custom' : 'None')}
+                                        small
+                                      />
+                                      <DetailItem
+                                        label="Blocking Page"
+                                        value={wafSpec?.use_default_blocking_page !== undefined ? 'Default' : ((wafSpec?.blocking_page?.blocking_page || wafSpec?.blocking_page?.blocking_page_body) ? 'Custom' : 'Default')}
+                                        small
+                                      />
+                                      {wafSpec?.blocking_page?.response_code && (
+                                        <DetailItem
+                                          label="Blocking Code"
+                                          value={wafSpec.blocking_page.response_code}
+                                          small
+                                        />
+                                      )}
+                                    </div>
+                                    {wafSpec?.allowed_response_codes?.response_code && wafSpec.allowed_response_codes.response_code.length > 0 && (
+                                      <div className="pt-3 border-t border-slate-700/50">
+                                        <span className="text-xs text-slate-500 block mb-2">Allowed Response Codes</span>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {wafSpec.allowed_response_codes.response_code.map((code, idx) => (
+                                            <span key={idx} className={`px-2 py-1 rounded text-xs font-mono ${
+                                              code >= 200 && code < 300 ? 'bg-emerald-500/10 text-emerald-400' :
+                                              code >= 300 && code < 400 ? 'bg-blue-500/10 text-blue-400' :
+                                              code >= 400 && code < 500 ? 'bg-amber-500/10 text-amber-400' :
+                                              code >= 500 ? 'bg-red-500/10 text-red-400' : 'bg-slate-700 text-slate-400'
+                                            }`}>
+                                              {code}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {wafSpec?.http_protocol_settings && (
+                                    <div className="p-4 bg-slate-800/50 rounded-lg">
+                                      <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        {wafSpec.http_protocol_settings.max_url_length && (
+                                          <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
+                                        )}
+                                        {wafSpec.http_protocol_settings.max_query_string_length && (
+                                          <DetailItem label="Max Query String" value={`${wafSpec.http_protocol_settings.max_query_string_length}`} small />
+                                        )}
+                                        {wafSpec.http_protocol_settings.max_request_body_size && (
+                                          <DetailItem label="Max Body Size" value={`${wafSpec.http_protocol_settings.max_request_body_size}`} small />
+                                        )}
+                                        {wafSpec.http_protocol_settings.max_headers && (
+                                          <DetailItem label="Max Headers" value={`${wafSpec.http_protocol_settings.max_headers}`} small />
+                                        )}
+                                        <DetailItem
+                                          label="Unknown Content Types"
+                                          value={wafSpec.http_protocol_settings.allow_unknown_content_types ? 'Allowed' : 'Blocked'}
+                                          enabled={wafSpec.http_protocol_settings.allow_unknown_content_types}
+                                          small
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+
+                  {spec?.active_service_policies?.policies && spec.active_service_policies.policies.length > 0 && (
+                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <FileText className="w-6 h-6 text-teal-400" />
+                        <h3 className="text-lg font-semibold text-slate-200">Service Policies</h3>
+                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                          {spec.active_service_policies.policies.length}
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        {spec.active_service_policies.policies.map((pol, i) => {
+                          const spData = state.servicePolicies.get(pol.name) as ServicePolicy | undefined;
+                          const rules = spData?.spec?.rule_list?.rules || spData?.spec?.deny_list?.rules || spData?.spec?.allow_list?.rules || [];
+                          return (
+                            <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="w-4 h-4 text-teal-400" />
+                                  <span className="text-slate-200 font-medium">{pol.name}</span>
+                                  <span className="text-xs text-slate-500">{pol.namespace || state.namespace}</span>
+                                  {spData?.spec?.deny_list && <span className="px-2 py-0.5 bg-red-500/15 text-red-400 rounded text-xs">Deny List</span>}
+                                  {spData?.spec?.allow_list && <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-xs">Allow List</span>}
+                                </div>
+                                {spData && (
+                                  <button
+                                    onClick={() => setJsonModal({ title: `${pol.name} Service Policy`, data: spData })}
+                                    className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                                  >
+                                    <Code className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                              {spData?.spec && (
+                                <>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                                    <DetailItem label="Algorithm" value={spData.spec.algo || 'FIRST_MATCH'} small />
+                                    <DetailItem label="Rules" value={rules.length.toString()} small />
+                                    <DetailItem label="Any Server" value={spData.spec.any_server ? 'Yes' : 'No'} small />
+                                    {spData.spec.server_name && (
+                                      <DetailItem label="Server Name" value={spData.spec.server_name} small />
+                                    )}
+                                  </div>
+
+                                  {rules.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-slate-700/50">
+                                      <span className="text-xs text-slate-500 block mb-2">Policy Rules</span>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {rules.slice(0, 5).map((rule, ruleIdx) => {
+                                          const r = rule as ServicePolicyRule;
+                                          return (
+                                            <div key={ruleIdx} className="p-2 bg-slate-900/50 rounded text-sm">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-slate-400 font-mono text-xs">{ruleIdx + 1}</span>
+                                                <span className="text-slate-200">{r.metadata?.name || `Rule ${ruleIdx + 1}`}</span>
+                                                <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                                  r.spec?.action === 'ALLOW' ? 'bg-emerald-500/15 text-emerald-400' :
+                                                  r.spec?.action === 'DENY' ? 'bg-red-500/15 text-red-400' :
+                                                  'bg-slate-700 text-slate-400'
+                                                }`}>
+                                                  {r.spec?.action || 'ALLOW'}
+                                                </span>
+                                              </div>
+                                              <div className="flex flex-wrap gap-2 text-xs">
+                                                {r.spec?.any_client && <span className="text-slate-500">Any Client</span>}
+                                                {r.spec?.any_ip && <span className="text-slate-500">Any IP</span>}
+                                                {r.spec?.ip_prefix_list?.prefixes?.length && (
+                                                  <span className="text-blue-400">{r.spec.ip_prefix_list.prefixes.length} IP prefix(es)</span>
+                                                )}
+                                                {r.spec?.path?.prefix && <span className="text-cyan-400">Path: {r.spec.path.prefix}</span>}
+                                                {r.spec?.path?.regex && <span className="text-cyan-400">Regex: {r.spec.path.regex}</span>}
+                                                {r.spec?.http_method?.methods?.length && (
+                                                  <span className="text-amber-400">{r.spec.http_method.methods.join(', ')}</span>
+                                                )}
+                                                {r.spec?.waf_action?.waf_skip_processing && <span className="text-red-400">Skip WAF</span>}
+                                                {r.spec?.waf_action?.waf_in_monitoring_mode && <span className="text-amber-400">WAF Monitor</span>}
+                                                {r.spec?.headers?.length && <span className="text-slate-400">{r.spec.headers.length} header(s)</span>}
+                                                {r.spec?.asn_list?.as_numbers?.length && <span className="text-slate-400">{r.spec.asn_list.as_numbers.length} ASN(s)</span>}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                        {rules.length > 5 && (
+                                          <div className="text-center text-slate-500 text-xs py-1">
+                                            ... and {rules.length - 5} more rules
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <SecurityFeatureCard
+                      icon={Bot}
+                      name="Bot Defense"
+                      enabled={!!spec?.bot_defense}
+                      value={spec?.bot_defense?.policy?.name || (spec?.bot_defense ? 'Enabled' : 'Not configured')}
+                      details={spec?.bot_defense?.regional_endpoint ? `Endpoint: ${spec.bot_defense.regional_endpoint}` : undefined}
+                    />
+                    <SecurityFeatureCard
+                      icon={User}
+                      name="User Identification"
+                      enabled={!!spec?.user_identification}
+                      value={spec?.user_identification?.name || 'Not configured'}
+                    />
+                    <SecurityFeatureCard
+                      icon={AlertTriangle}
+                      name="Malicious User Mitigation"
+                      enabled={!!spec?.malicious_user_mitigation || !!spec?.policy_based_challenge?.malicious_user_mitigation}
+                      value={spec?.malicious_user_mitigation?.name || spec?.policy_based_challenge?.malicious_user_mitigation?.name || 'Not configured'}
+                    />
+                    <SecurityFeatureCard
+                      icon={Eye}
+                      name="Malicious User Detection"
+                      enabled={spec?.enable_malicious_user_detection === true || (!spec?.disable_malicious_user_detection && spec?.malicious_user_detection !== undefined)}
+                      value={spec?.enable_malicious_user_detection || spec?.malicious_user_detection ? 'Enabled' : (spec?.disable_malicious_user_detection ? 'Disabled' : 'Not configured')}
+                    />
+                    <SecurityFeatureCard
+                      icon={Network}
+                      name="IP Reputation"
+                      enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation}
+                      value={spec?.enable_ip_reputation || spec?.ip_reputation ? 'Enabled' : 'Not configured'}
+                    />
+                    <SecurityFeatureCard
+                      icon={Zap}
+                      name="DDoS Detection"
+                      enabled={!spec?.disable_ddos_detection && (!!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection)}
+                      value={spec?.disable_ddos_detection ? 'Disabled' : (spec?.enable_ddos_detection || spec?.ddos_detection || spec?.single_lb_app?.enable_ddos_detection ? 'Enabled' : 'Default (Enabled)')}
+                    />
+                    <SecurityFeatureCard
+                      icon={Search}
+                      name="API Discovery"
+                      enabled={!spec?.disable_api_discovery && (!!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery)}
+                      value={spec?.disable_api_discovery ? 'Disabled' : (spec?.enable_api_discovery || spec?.single_lb_app?.enable_discovery ? 'Enabled' : 'Not configured')}
+                    />
+                    <SecurityFeatureCard
+                      icon={Layers}
+                      name="Client-Side Defense"
+                      enabled={!spec?.disable_client_side_defense && !!spec?.client_side_defense}
+                      value={spec?.disable_client_side_defense ? 'Disabled' : (spec?.client_side_defense?.policy?.name || (spec?.client_side_defense ? 'Enabled' : 'Not configured'))}
+                    />
+                    {spec?.rate_limiter && (
+                      <SecurityFeatureCard
+                        icon={Timer}
+                        name="Rate Limiter"
+                        enabled={true}
+                        value={spec.rate_limiter.name}
+                      />
+                    )}
+                    {spec?.api_definition && (
+                      <SecurityFeatureCard
+                        icon={FileText}
+                        name="API Definition"
+                        enabled={true}
+                        value={spec.api_definition.name}
+                      />
+                    )}
+                    {(spec?.captcha_challenge || spec?.js_challenge || spec?.policy_based_challenge || spec?.no_challenge) && (
+                      <SecurityFeatureCard
+                        icon={ShieldCheck}
+                        name="Challenge Configuration"
+                        enabled={!spec?.no_challenge}
+                        value={
+                          spec?.no_challenge ? 'No Challenge' :
+                          spec?.captcha_challenge ? 'CAPTCHA Challenge' :
+                          spec?.js_challenge ? 'JS Challenge' :
+                          spec?.policy_based_challenge ? 'Policy Based' : 'Configured'
+                        }
+                        details={
+                          spec?.js_challenge?.js_script_delay ? `Delay: ${spec.js_challenge.js_script_delay}ms` :
+                          spec?.captcha_challenge?.cookie_expiry ? `Cookie Expiry: ${spec.captcha_challenge.cookie_expiry}s` :
+                          undefined
+                        }
+                      />
+                    )}
+                    {spec?.slow_ddos_mitigation && (
+                      <SecurityFeatureCard
+                        icon={Timer}
+                        name="Slow DDoS Mitigation"
+                        enabled={true}
+                        value="Configured"
+                        details={`Headers: ${spec.slow_ddos_mitigation.request_headers_timeout || 'default'}ms, Request: ${spec.slow_ddos_mitigation.request_timeout || 'default'}ms`}
+                      />
+                    )}
+                    {spec?.csrf_policy && !spec.csrf_policy.disabled && (
+                      <SecurityFeatureCard
+                        icon={Shield}
+                        name="CSRF Protection"
+                        enabled={true}
+                        value="Enabled"
+                        details={spec.csrf_policy.allowed_domains?.length ? `${spec.csrf_policy.allowed_domains.length} allowed domains` : undefined}
+                      />
+                    )}
+                    {spec?.cors_policy && !spec.cors_policy.disabled && (
+                      <SecurityFeatureCard
+                        icon={Globe}
+                        name="CORS Policy"
+                        enabled={true}
+                        value="Configured"
+                        details={spec.cors_policy.allow_origin?.length ? `${spec.cors_policy.allow_origin.length} origins` : undefined}
+                      />
+                    )}
+                  </div>
+
+                  {(spec?.waf_exclusion_rules?.length || spec?.data_guard_rules?.length || spec?.trusted_clients?.length || spec?.blocked_clients?.length) && (
+                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <Settings className="w-6 h-6 text-slate-400" />
+                        <h3 className="text-lg font-semibold text-slate-200">Additional Security Rules</h3>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {spec?.waf_exclusion_rules && (
+                          <DetailItem label="WAF Exclusion Rules" value={spec.waf_exclusion_rules.length.toString()} />
+                        )}
+                        {spec?.data_guard_rules && (
+                          <DetailItem label="Data Guard Rules" value={spec.data_guard_rules.length.toString()} />
+                        )}
+                        {spec?.trusted_clients && (
+                          <DetailItem label="Trusted Clients" value={spec.trusted_clients.length.toString()} />
+                        )}
+                        {spec?.blocked_clients && (
+                          <DetailItem label="Blocked Clients" value={spec.blocked_clients.length.toString()} />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('tls')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Lock className="w-5 h-5 text-amber-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">TLS & Certificate Configuration</h2>
+                </div>
+                {expandedSections.has('tls') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('tls') && (
+                <div className="p-6 space-y-6">
+                  {!spec?.https_auto_cert && !spec?.https ? (
+                    <div className="flex items-center gap-3 text-slate-500">
+                      <ShieldOff className="w-5 h-5" />
+                      <span>HTTP only - No TLS configured</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        <DetailItem
+                          label="TLS Type"
+                          value={spec?.https_auto_cert ? "Auto Certificate (Let's Encrypt)" : 'Custom Certificate'}
+                        />
+                        <DetailItem
+                          label="Min TLS Version"
+                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.min_version || 'TLS 1.0'}
+                        />
+                        <DetailItem
+                          label="Max TLS Version"
+                          value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.max_version || 'TLS 1.3'}
+                        />
+                        <DetailItem
+                          label="mTLS"
+                          value={(spec?.https_auto_cert || spec?.https)?.mtls ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.mtls}
+                        />
+                        <DetailItem
+                          label="HTTP Redirect"
+                          value={(spec?.https_auto_cert || spec?.https)?.http_redirect ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.http_redirect}
+                        />
+                        <DetailItem
+                          label="HSTS"
+                          value={(spec?.https_auto_cert || spec?.https)?.add_hsts ? 'Enabled' : 'Disabled'}
+                          enabled={(spec?.https_auto_cert || spec?.https)?.add_hsts}
+                        />
+                      </div>
+
+                      {(() => {
+                        const tlsConfig = spec?.https_auto_cert || spec?.https;
+                        const certificates = tlsConfig?.tls_certificates || tlsConfig?.tls_config?.tls_certificates;
+
+                        if (!certificates?.length) return null;
+
+                        return (
+                          <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                            <div className="flex items-center gap-3 mb-4">
+                              <Lock className="w-6 h-6 text-amber-400" />
+                              <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
+                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                {certificates.length} certificate{certificates.length !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <div className="space-y-4">
+                              {certificates.map((cert, i) => {
+                                const certInfo = cert.certificate_url ? formatCertificateUrl(cert.certificate_url) : null;
+                                return (
+                                  <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <Lock className="w-4 h-4 text-amber-400" />
+                                        <span className="text-slate-200 font-medium">Certificate {i + 1}</span>
+                                        {certInfo && (
+                                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                            {certInfo.type}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                      {cert.description && (
+                                        <DetailItem label="Description" value={cert.description} small />
+                                      )}
+                                      {certInfo && (
+                                        <DetailItem label="Location" value={certInfo.location.length > 40 ? certInfo.location.substring(0, 40) + '...' : certInfo.location} small />
+                                      )}
+                                      {cert.private_key?.blindfold_secret_info && (
+                                        <DetailItem label="Private Key" value="Blindfolded" small />
+                                      )}
+                                      {cert.private_key?.clear_secret_info && (
+                                        <DetailItem label="Private Key" value={cert.private_key.clear_secret_info.provider || 'Clear'} small />
+                                      )}
+                                      {cert.custom_hash_algorithms?.length && (
+                                        <DetailItem label="Hash Algorithms" value={cert.custom_hash_algorithms.join(', ')} small />
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {(() => {
+                        const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config;
+                        if (!tlsConfig?.cipher_suites?.length) return null;
+
+                        return (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Cipher Suites ({tlsConfig.cipher_suites.length})</span>
+                            <div className="flex flex-wrap gap-2">
+                              {tlsConfig.cipher_suites.map((cipher, i) => (
+                                <span key={i} className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-300 font-mono">
+                                  {cipher}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <button
+                        onClick={() => setJsonModal({ title: 'TLS Configuration', data: spec?.https || spec?.https_auto_cert })}
+                        className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                      >
+                        <Code className="w-4 h-4" /> View Full TLS Config JSON
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('advanced')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Settings className="w-5 h-5 text-slate-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Advanced Settings & Timeouts</h2>
+                </div>
+                {expandedSections.has('advanced') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('advanced') && (
+                <div className="p-6 space-y-6">
+                  {(() => {
+                    const httpsConfig = spec?.https || spec?.https_auto_cert;
+                    const moreOpts = spec?.more_option;
+                    return (
+                      <>
+                        <div className="p-4 bg-slate-700/30 rounded-lg">
+                          <span className="text-xs text-slate-500 block mb-3">Timeout Settings</span>
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                            <DetailItem
+                              label="Connection Idle Timeout"
+                              value={httpsConfig?.connection_idle_timeout ? `${httpsConfig.connection_idle_timeout}ms` : 'Default'}
+                            />
+                            <DetailItem
+                              label="Idle Timeout"
+                              value={moreOpts?.idle_timeout ? `${moreOpts.idle_timeout}ms` : (spec?.idle_timeout ? `${spec.idle_timeout}ms` : 'Default')}
+                            />
+                            <DetailItem
+                              label="System Timeouts"
+                              value={spec?.system_default_timeouts !== undefined ? 'Default' : 'Custom'}
+                            />
+                            {moreOpts?.buffer_policy?.max_request_time !== undefined && (
+                              <DetailItem
+                                label="Max Request Time"
+                                value={moreOpts.buffer_policy.max_request_time === 0 ? 'Unlimited' : `${moreOpts.buffer_policy.max_request_time}ms`}
+                              />
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-700/30 rounded-lg">
+                          <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                            <DetailItem
+                              label="Port"
+                              value={httpsConfig?.port?.toString() || (spec?.https ? '443' : '80')}
+                            />
+                            <DetailItem
+                              label="HTTP Protocol"
+                              value={
+                                httpsConfig?.http_protocol_options?.http_protocol_enable_v1_only ? 'HTTP/1.x Only' :
+                                httpsConfig?.http_protocol_options?.http_protocol_enable_v2_only ? 'HTTP/2 Only' :
+                                httpsConfig?.http_protocol_options?.http_protocol_enable_v1_v2 ? 'HTTP/1.x & HTTP/2' : 'Default'
+                              }
+                            />
+                            <DetailItem
+                              label="Header Transform"
+                              value={
+                                httpsConfig?.header_transformation_type?.legacy_header_transformation ? 'Legacy' :
+                                httpsConfig?.header_transformation_type?.proper_case_header_transformation ? 'Proper Case' :
+                                httpsConfig?.header_transformation_type?.preserve_case_header_transformation ? 'Preserve Case' : 'Default'
+                              }
+                            />
+                            <DetailItem
+                              label="Path Normalize"
+                              value={httpsConfig?.enable_path_normalize ? 'Enabled' : 'Disabled'}
+                              enabled={!!httpsConfig?.enable_path_normalize}
+                            />
+                            <DetailItem
+                              label="Coalescing"
+                              value={
+                                httpsConfig?.coalescing_options?.disable_coalescing ? 'Disabled' :
+                                httpsConfig?.coalescing_options?.default_coalescing ? 'Default' :
+                                httpsConfig?.coalescing_options?.apply_coalescing ? `TTL: ${httpsConfig.coalescing_options.apply_coalescing.ttl}` : 'Default'
+                              }
+                            />
+                            <DetailItem
+                              label="Add Location"
+                              value={spec?.add_location ? 'Enabled' : 'Disabled'}
+                              enabled={spec?.add_location}
+                            />
+                          </div>
+                        </div>
+
+                        {moreOpts?.max_request_header_size !== undefined && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Request Size Limits</span>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <DetailItem
+                                label="Max Request Header Size"
+                                value={`${moreOpts.max_request_header_size} KB`}
+                              />
+                              {moreOpts.buffer_policy && (
+                                <>
+                                  <DetailItem
+                                    label="Max Request Body"
+                                    value={moreOpts.buffer_policy.max_request_bytes ? `${(moreOpts.buffer_policy.max_request_bytes / 1024 / 1024).toFixed(1)} MB` : 'Default'}
+                                  />
+                                  <DetailItem
+                                    label="Request Buffering"
+                                    value={moreOpts.buffer_policy.disabled ? 'Disabled' : 'Enabled'}
+                                    enabled={!moreOpts.buffer_policy.disabled}
+                                  />
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="p-4 bg-slate-700/30 rounded-lg">
+                          <span className="text-xs text-slate-500 block mb-3">Load Balancing & Stickiness</span>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <DetailItem
+                              label="Algorithm"
+                              value={
+                                spec?.round_robin !== undefined ? 'Round Robin' :
+                                spec?.least_active !== undefined ? 'Least Active' :
+                                spec?.ring_hash !== undefined ? 'Ring Hash' :
+                                spec?.random !== undefined ? 'Random' :
+                                spec?.source_ip_stickiness !== undefined ? 'Source IP' :
+                                spec?.cookie_stickiness_hash !== undefined ? 'Cookie Hash' : 'Round Robin'
+                              }
+                            />
+                            {spec?.cookie_stickiness?.name && (
+                              <DetailItem label="Cookie Stickiness" value={spec.cookie_stickiness.name} />
+                            )}
+                            <DetailItem
+                              label="Trust Client IP Headers"
+                              value={spec?.disable_trust_client_ip_headers !== undefined ? 'Disabled' : (spec?.enable_trust_client_ip_headers ?
+                                (typeof spec.enable_trust_client_ip_headers === 'object' && spec.enable_trust_client_ip_headers.client_ip_headers?.length
+                                  ? spec.enable_trust_client_ip_headers.client_ip_headers.join(', ')
+                                  : 'Enabled')
+                                : 'Default')}
+                              enabled={!!spec?.enable_trust_client_ip_headers}
+                            />
+                            <DetailItem
+                              label="User ID"
+                              value={spec?.user_identification?.name || (spec?.user_id_client_ip !== undefined ? 'Client IP' : 'Not configured')}
+                            />
+                          </div>
+                        </div>
+
+                        {moreOpts?.custom_errors && Object.keys(moreOpts.custom_errors).length > 0 && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Custom Error Responses ({Object.keys(moreOpts.custom_errors).length})</span>
+                            <div className="space-y-2">
+                              {Object.entries(moreOpts.custom_errors).map(([code, value]) => (
+                                <div key={code} className="flex items-center gap-3 px-3 py-2 bg-slate-800/50 rounded">
+                                  <span className="px-2 py-0.5 bg-amber-500/15 text-amber-400 rounded text-sm font-mono">{code}</span>
+                                  <span className="text-slate-400 text-sm">
+                                    {value.startsWith('string:///') ? 'Custom HTML Page' : value}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <DetailItem
+                              label="Default Error Pages"
+                              value={moreOpts.disable_default_error_pages ? 'Disabled' : 'Enabled'}
+                              enabled={!moreOpts.disable_default_error_pages}
+                            />
+                          </div>
+                        )}
+
+                        {spec?.rate_limit && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Rate Limiting</span>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              {spec.rate_limit.rate_limiter && (
+                                <>
+                                  <DetailItem
+                                    label="Rate"
+                                    value={`${spec.rate_limit.rate_limiter.total_number || 0} per ${spec.rate_limit.rate_limiter.unit || 'MINUTE'}`}
+                                  />
+                                  <DetailItem
+                                    label="Burst Multiplier"
+                                    value={`${spec.rate_limit.rate_limiter.burst_multiplier || 1}x`}
+                                  />
+                                  <DetailItem
+                                    label="Period Multiplier"
+                                    value={`${spec.rate_limit.rate_limiter.period_multiplier || 1}x`}
+                                  />
+                                </>
+                              )}
+                              <DetailItem
+                                label="IP Allowed List"
+                                value={spec.rate_limit.no_ip_allowed_list !== undefined ? 'None' : (spec.rate_limit.ip_allowed_list?.prefixes?.length ? `${spec.rate_limit.ip_allowed_list.prefixes.length} IPs` : 'None')}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {spec?.l7_ddos_protection && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">L7 DDoS Protection</span>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <DetailItem
+                                label="Mitigation Action"
+                                value={
+                                  spec.l7_ddos_protection.mitigation_block !== undefined ? 'Block' :
+                                  spec.l7_ddos_protection.mitigation_js_challenge !== undefined ? 'JS Challenge' :
+                                  spec.l7_ddos_protection.mitigation_captcha !== undefined ? 'CAPTCHA' : 'Default'
+                                }
+                              />
+                              <DetailItem
+                                label="RPS Threshold"
+                                value={
+                                  spec.l7_ddos_protection.default_rps_threshold !== undefined ? 'Default' :
+                                  spec.l7_ddos_protection.custom_rps_threshold?.threshold ? `${spec.l7_ddos_protection.custom_rps_threshold.threshold} RPS` : 'Default'
+                                }
+                              />
+                              <DetailItem
+                                label="Client-Side Action"
+                                value={
+                                  spec.l7_ddos_protection.clientside_action_none !== undefined ? 'None' :
+                                  spec.l7_ddos_protection.clientside_action_block !== undefined ? 'Block' :
+                                  spec.l7_ddos_protection.clientside_action_redirect !== undefined ? 'Redirect' : 'None'
+                                }
+                              />
+                              <DetailItem
+                                label="DDoS Policy"
+                                value={spec.l7_ddos_protection.ddos_policy?.name || (spec.l7_ddos_protection.ddos_policy_none !== undefined ? 'None' : 'Default')}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {(moreOpts?.request_headers_to_add?.length || spec?.request_headers_to_add?.length) && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Request Headers to Add ({(moreOpts?.request_headers_to_add || spec?.request_headers_to_add || []).length})</span>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                              {(moreOpts?.request_headers_to_add || spec?.request_headers_to_add || []).map((h, i) => (
+                                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 rounded">
+                                  <code className="text-blue-400 font-medium">{h.name}</code>
+                                  <span className="text-slate-500">:</span>
+                                  <code className="text-slate-300 truncate text-sm">{h.value || '[dynamic]'}</code>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(moreOpts?.response_headers_to_add?.length || spec?.response_headers_to_add?.length) && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Response Headers to Add ({(moreOpts?.response_headers_to_add || spec?.response_headers_to_add || []).length})</span>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                              {(moreOpts?.response_headers_to_add || spec?.response_headers_to_add || []).map((h, i) => (
+                                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 rounded">
+                                  <code className="text-emerald-400 font-medium">{h.name}</code>
+                                  <span className="text-slate-500">:</span>
+                                  <code className="text-slate-300 truncate text-sm">{h.value || '[dynamic]'}</code>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(moreOpts?.request_headers_to_remove?.length || spec?.request_headers_to_remove?.length) && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Request Headers to Remove</span>
+                            <div className="flex flex-wrap gap-2">
+                              {(moreOpts?.request_headers_to_remove || spec?.request_headers_to_remove || []).map((h, i) => (
+                                <span key={i} className="px-2 py-1 bg-red-500/10 text-red-400 rounded text-sm">{h}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(moreOpts?.response_headers_to_remove?.length || spec?.response_headers_to_remove?.length) && (
+                          <div className="p-4 bg-slate-700/30 rounded-lg">
+                            <span className="text-xs text-slate-500 block mb-3">Response Headers to Remove</span>
+                            <div className="flex flex-wrap gap-2">
+                              {(moreOpts?.response_headers_to_remove || spec?.response_headers_to_remove || []).map((h, i) => (
+                                <span key={i} className="px-2 py-1 bg-red-500/10 text-red-400 rounded text-sm">{h}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </section>
+
+            {spec?.cors_policy && !spec.cors_policy.disabled && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('cors')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Globe className="w-5 h-5 text-blue-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">CORS Policy</h2>
+                  </div>
+                  {expandedSections.has('cors') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('cors') && (
+                  <div className="p-6 space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <DetailItem label="Allow Methods" value={spec.cors_policy.allow_methods || '*'} />
+                      <DetailItem label="Allow Headers" value={spec.cors_policy.allow_headers || '*'} />
+                      <DetailItem label="Expose Headers" value={spec.cors_policy.expose_headers || '*'} />
+                      <DetailItem label="Allow Credentials" value={spec.cors_policy.allow_credentials ? 'Yes' : 'No'} enabled={spec.cors_policy.allow_credentials} />
+                      {spec.cors_policy.max_age && <DetailItem label="Max Age" value={spec.cors_policy.max_age} />}
+                    </div>
+                    {spec.cors_policy.allow_origin && spec.cors_policy.allow_origin.length > 0 && (
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-2">Allowed Origins</span>
+                        <div className="flex flex-wrap gap-2">
+                          {spec.cors_policy.allow_origin.map((origin, idx) => (
+                            <span key={idx} className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-slate-300">{origin}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {spec.cors_policy.allow_origin_regex && spec.cors_policy.allow_origin_regex.length > 0 && (
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-2">Allowed Origins (Regex)</span>
+                        <div className="flex flex-wrap gap-2">
+                          {spec.cors_policy.allow_origin_regex.map((regex, idx) => (
+                            <code key={idx} className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-slate-300">{regex}</code>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {spec?.rate_limit && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('ratelimit')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Timer className="w-5 h-5 text-amber-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">Rate Limiting</h2>
+                  </div>
+                  {expandedSections.has('ratelimit') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('ratelimit') && (
+                  <div className="p-6">
+                    {spec.rate_limit.rate_limiter && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <DetailItem label="Rate" value={`${spec.rate_limit.rate_limiter.total_number || 0} / ${spec.rate_limit.rate_limiter.unit || 'SECOND'}`} />
+                        <DetailItem label="Burst Multiplier" value={spec.rate_limit.rate_limiter.burst_multiplier?.toString() || '1'} />
+                        <DetailItem label="Period Multiplier" value={spec.rate_limit.rate_limiter.period_multiplier?.toString() || '1'} />
+                        <DetailItem label="IP Allow List" value={spec.rate_limit.ip_allowed_list ? 'Configured' : 'None'} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {((spec?.blocked_clients && spec.blocked_clients.length > 0) || (spec?.trusted_clients && spec.trusted_clients.length > 0)) && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('clientlists')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <User className="w-5 h-5 text-rose-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">Client Lists</h2>
+                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                      {(spec.blocked_clients?.length || 0) + (spec.trusted_clients?.length || 0)} entries
+                    </span>
+                  </div>
+                  {expandedSections.has('clientlists') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('clientlists') && (
+                  <div className="p-6 space-y-6">
+                    {spec.blocked_clients && spec.blocked_clients.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-red-400 mb-3 flex items-center gap-2">
+                          <X className="w-4 h-4" /> Blocked Clients ({spec.blocked_clients.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {spec.blocked_clients.map((client, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                              <div className="flex items-center gap-3">
+                                <span className="text-slate-300 font-mono text-sm">{client.ip_prefix || `ASN: ${client.as_number}`}</span>
+                                {client.metadata?.name && (
+                                  <span className="text-xs text-slate-500">({client.metadata.name})</span>
+                                )}
+                              </div>
+                              {client.metadata?.disable && (
+                                <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {spec.trusted_clients && spec.trusted_clients.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2">
+                          <Check className="w-4 h-4" /> Trusted Clients ({spec.trusted_clients.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {spec.trusted_clients.map((client, idx) => (
+                            <div key={idx} className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-slate-300 font-mono text-sm">{client.ip_prefix || `ASN: ${client.as_number}`}</span>
+                                  {client.metadata?.name && (
+                                    <span className="text-xs text-slate-500">({client.metadata.name})</span>
+                                  )}
+                                </div>
+                                {client.metadata?.disable && (
+                                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
+                                )}
+                              </div>
+                              {client.actions && client.actions.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {client.actions.map((action, actionIdx) => (
+                                    <span key={actionIdx} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded text-xs">
+                                      {action.replace('SKIP_PROCESSING_', '').replace(/_/g, ' ')}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules && spec.waf_exclusion.waf_exclusion_inline_rules.rules.length > 0 && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('wafexclusion')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <ShieldOff className="w-5 h-5 text-amber-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">WAF Exclusion Rules</h2>
+                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                      {spec.waf_exclusion.waf_exclusion_inline_rules.rules.length} rule{spec.waf_exclusion.waf_exclusion_inline_rules.rules.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {expandedSections.has('wafexclusion') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('wafexclusion') && (
+                  <div className="p-6 space-y-3">
+                    {(spec.waf_exclusion.waf_exclusion_inline_rules.rules as Array<{
+                      metadata?: { name?: string; disable?: boolean };
+                      any_domain?: unknown;
+                      exact_domain?: string;
+                      path_prefix?: string;
+                      path_regex?: string;
+                      methods?: string[];
+                      app_firewall_detection_control?: {
+                        exclude_signature_contexts?: Array<{ signature_id?: number; context?: string }>;
+                        exclude_attack_type_contexts?: Array<{ exclude_attack_type?: string; context?: string }>;
+                        exclude_violation_contexts?: Array<{ violation_type?: string; context?: string }>;
+                      };
+                    }>).map((rule, idx) => (
+                      <div key={idx} className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-200 font-medium">{rule.metadata?.name || `Rule ${idx + 1}`}</span>
+                            {rule.metadata?.disable && (
+                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Disabled</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {rule.methods && (
+                              <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                                {rule.methods.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <span className="text-xs text-slate-500 block">Domain</span>
+                            <span className="text-slate-300">{rule.any_domain ? 'Any' : rule.exact_domain || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-slate-500 block">Path</span>
+                            <code className="text-slate-300">{rule.path_prefix || rule.path_regex || '/'}</code>
+                          </div>
+                          {rule.app_firewall_detection_control?.exclude_attack_type_contexts && rule.app_firewall_detection_control.exclude_attack_type_contexts.length > 0 && (
+                            <div className="col-span-2">
+                              <span className="text-xs text-slate-500 block mb-1">Excluded Attack Types</span>
+                              <div className="flex flex-wrap gap-1">
+                                {rule.app_firewall_detection_control.exclude_attack_type_contexts.map((ctx, ctxIdx) => (
+                                  <span key={ctxIdx} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">
+                                    {ctx.exclude_attack_type?.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {spec?.protected_cookies && spec.protected_cookies.length > 0 && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('cookies')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-cyan-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">Protected Cookies</h2>
+                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                      {spec.protected_cookies.length} cookie{spec.protected_cookies.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {expandedSections.has('cookies') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('cookies') && (
+                  <div className="p-6">
+                    <div className="space-y-2">
+                      {spec.protected_cookies.map((cookie, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+                          <code className="text-slate-300 font-medium">{cookie.name}</code>
+                          <div className="flex items-center gap-2">
+                            {cookie.add_secure && (
+                              <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded text-xs">Secure</span>
+                            )}
+                            {cookie.add_httponly && (
+                              <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded text-xs">HttpOnly</span>
+                            )}
+                            {cookie.samesite_strict && (
+                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">SameSite=Strict</span>
+                            )}
+                            {cookie.samesite_lax && (
+                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">SameSite=Lax</span>
+                            )}
+                            {cookie.samesite_none && (
+                              <span className="px-2 py-0.5 bg-slate-600 text-slate-300 rounded text-xs">SameSite=None</span>
+                            )}
+                            {cookie.enable_tampering_protection && (
+                              <span className="px-2 py-0.5 bg-rose-500/10 text-rose-400 rounded text-xs">Tamper Protection</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {spec?.more_option && ((spec.more_option.request_headers_to_add && spec.more_option.request_headers_to_add.length > 0) || (spec.more_option.response_headers_to_add && spec.more_option.response_headers_to_add.length > 0)) && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button
+                  onClick={() => toggleSection('headers')}
+                  className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <Hash className="w-5 h-5 text-teal-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">Header Manipulation</h2>
+                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                      {(spec.more_option.request_headers_to_add?.length || 0) + (spec.more_option.response_headers_to_add?.length || 0)} headers
+                    </span>
+                  </div>
+                  {expandedSections.has('headers') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+
+                {expandedSections.has('headers') && (
+                  <div className="p-6 space-y-6">
+                    {spec.more_option.request_headers_to_add && spec.more_option.request_headers_to_add.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <ArrowRight className="w-4 h-4 text-blue-400" /> Request Headers ({spec.more_option.request_headers_to_add.length})
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-700">
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Header Name</th>
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Value</th>
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Mode</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {spec.more_option.request_headers_to_add.map((header, idx) => (
+                                <tr key={idx} className="border-b border-slate-700/50">
+                                  <td className="py-2 px-3 text-slate-300 font-mono">{header.name}</td>
+                                  <td className="py-2 px-3 text-slate-400 font-mono text-xs max-w-xs truncate">{header.value}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${header.append ? 'bg-blue-500/10 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
+                                      {header.append ? 'Append' : 'Replace'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {spec.more_option.response_headers_to_add && spec.more_option.response_headers_to_add.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                          <ArrowLeft className="w-4 h-4 text-emerald-400" /> Response Headers ({spec.more_option.response_headers_to_add.length})
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-700">
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Header Name</th>
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Value</th>
+                                <th className="text-left py-2 px-3 text-slate-400 font-medium">Mode</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {spec.more_option.response_headers_to_add.map((header, idx) => (
+                                <tr key={idx} className="border-b border-slate-700/50">
+                                  <td className="py-2 px-3 text-slate-300 font-mono">{header.name}</td>
+                                  <td className="py-2 px-3 text-slate-400 font-mono text-xs max-w-xs truncate">{header.value}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${header.append ? 'bg-blue-500/10 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
+                                      {header.append ? 'Append' : 'Replace'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {spec.more_option.max_request_header_size && (
+                      <div className="pt-4 border-t border-slate-700/50">
+                        <DetailItem label="Max Request Header Size" value={`${spec.more_option.max_request_header_size} KB`} />
+                      </div>
+                    )}
+
+                    {spec.more_option.buffer_policy && (
+                      <div className="pt-4 border-t border-slate-700/50">
+                        <h4 className="text-sm font-medium text-slate-300 mb-3">Buffer Policy</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <DetailItem label="Max Request Bytes" value={spec.more_option.buffer_policy.max_request_bytes ? `${(spec.more_option.buffer_policy.max_request_bytes / 1024 / 1024).toFixed(1)} MB` : 'Default'} />
+                          <DetailItem label="Max Request Time" value={spec.more_option.buffer_policy.max_request_time ? `${spec.more_option.buffer_policy.max_request_time}ms` : 'Default'} />
+                          <DetailItem label="Buffering" value={spec.more_option.buffer_policy.disabled ? 'Disabled' : 'Enabled'} enabled={!spec.more_option.buffer_policy.disabled} />
+                        </div>
+                      </div>
+                    )}
+
+                    {spec.more_option.idle_timeout && (
+                      <div className="pt-4 border-t border-slate-700/50">
+                        <DetailItem label="Idle Timeout" value={`${spec.more_option.idle_timeout}ms`} />
+                      </div>
+                    )}
+
+                    {spec.more_option.custom_errors && Object.keys(spec.more_option.custom_errors).length > 0 && (
+                      <div className="pt-4 border-t border-slate-700/50">
+                        <h4 className="text-sm font-medium text-slate-300 mb-3">Custom Error Pages</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.keys(spec.more_option.custom_errors).map(code => (
+                            <span key={code} className="px-3 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg text-sm">
+                              {code}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {(() => {
+              const appTypeSpec = state.appType?.spec || state.appType?.get_spec;
+              const appTypeName = state.appType?.metadata?.name || state.appType?.name;
+              const appTypeFeatures = appTypeSpec?.features || [];
+              const hasFeature = (featureType: string) => appTypeFeatures.some(f => f.type === featureType);
+              const appSettingSpec = state.appSetting?.spec || state.appSetting?.get_spec;
+
+              return (
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+              <button
+                onClick={() => toggleSection('features')}
+                className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Activity className="w-5 h-5 text-cyan-400" />
+                  <h2 className="text-lg font-semibold text-slate-100">Features Status</h2>
+                  {state.appType && (
+                    <span className="px-2 py-0.5 bg-violet-500/15 text-violet-400 rounded text-xs font-medium">
+                      App Type: {appTypeName}
+                    </span>
+                  )}
+                </div>
+                {expandedSections.has('features') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+              </button>
+
+              {expandedSections.has('features') && (
+                <div className="p-6 space-y-4">
+                  {state.appType && (
+                    <p className="text-xs text-slate-500 mb-2">
+                      Settings from App Type "{appTypeName}" take precedence over Load Balancer settings
+                    </p>
+                  )}
+
+                  {appTypeFeatures.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-xs font-medium text-slate-400 mb-2">AI/ML Features (from App Type)</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <FeatureStatusItem
+                          label="Malicious User Detection"
+                          enabled={hasFeature('USER_BEHAVIOR_ANALYSIS')}
+                          disabled={false}
+                          fromAppType={true}
+                        />
+                        <FeatureStatusItem
+                          label="DDoS Detection"
+                          enabled={hasFeature('TIMESERIES_ANOMALY_DETECTION')}
+                          disabled={false}
+                          fromAppType={true}
+                        />
+                        <FeatureStatusItem
+                          label="API Discovery"
+                          enabled={hasFeature('BUSINESS_LOGIC_MARKUP')}
+                          disabled={false}
+                          fromAppType={true}
+                        />
+                        <FeatureStatusItem
+                          label="Per API Request Analysis"
+                          enabled={hasFeature('PER_REQ_ANOMALY_DETECTION')}
+                          disabled={false}
+                          fromAppType={true}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <FeatureStatusItem
+                      label="Bot Defense"
+                      enabled={appTypeSpec?.bot_defense_setting ? true : (!spec?.disable_bot_defense && !!spec?.bot_defense)}
+                      disabled={!!spec?.disable_bot_defense && !appTypeSpec?.bot_defense_setting}
+                      fromAppType={!!appTypeSpec?.bot_defense_setting}
+                    />
+                    <FeatureStatusItem
+                      label="API Discovery (LB)"
+                      enabled={!spec?.disable_api_discovery && !!spec?.enable_api_discovery}
+                      disabled={!!spec?.disable_api_discovery}
+                    />
+                    <FeatureStatusItem label="API Testing" enabled={!spec?.disable_api_testing} disabled={!!spec?.disable_api_testing} />
+                    <FeatureStatusItem label="API Definition" enabled={!spec?.disable_api_definition && !!spec?.api_definition} disabled={!!spec?.disable_api_definition} />
+                    <FeatureStatusItem label="IP Reputation" enabled={!spec?.disable_ip_reputation && !!spec?.enable_ip_reputation} disabled={!!spec?.disable_ip_reputation} />
+                    <FeatureStatusItem
+                      label="Malicious User Mitigation"
+                      enabled={!!appSettingSpec?.malicious_user_mitigation || !!spec?.malicious_user_mitigation}
+                      disabled={false}
+                      fromAppType={!!appSettingSpec?.malicious_user_mitigation}
+                    />
+                    <FeatureStatusItem
+                      label="Client-Side Defense"
+                      enabled={appTypeSpec?.client_side_defense?.policy ? true : (!spec?.disable_client_side_defense && !!spec?.client_side_defense)}
+                      disabled={!!spec?.disable_client_side_defense && !appTypeSpec?.client_side_defense?.policy}
+                      fromAppType={!!appTypeSpec?.client_side_defense?.policy}
+                    />
+                    <FeatureStatusItem label="Threat Mesh" enabled={!spec?.disable_threat_mesh} disabled={!!spec?.disable_threat_mesh} />
+                    <FeatureStatusItem label="Malware Protection" enabled={!spec?.disable_malware_protection} disabled={!!spec?.disable_malware_protection} />
+                    <FeatureStatusItem label="Challenge" enabled={!spec?.no_challenge && (!!spec?.enable_challenge || !!spec?.captcha_challenge || !!spec?.js_challenge || !!spec?.policy_based_challenge)} disabled={!!spec?.no_challenge} />
+                    <FeatureStatusItem label="WAF" enabled={!spec?.disable_waf && !!spec?.app_firewall} disabled={!!spec?.disable_waf} />
+                    <FeatureStatusItem label="Sensitive Data Policy" enabled={!!spec?.default_sensitive_data_policy || !!spec?.sensitive_data_disclosure_rules} disabled={false} />
+                  </div>
+
+                  {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && spec.enable_ip_reputation.ip_threat_categories && spec.enable_ip_reputation.ip_threat_categories.length > 0 && (
+                    <div className="pt-4 border-t border-slate-700/50">
+                      <h4 className="text-xs font-medium text-slate-400 mb-2">IP Reputation - Threat Categories</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {spec.enable_ip_reputation.ip_threat_categories.map((cat, idx) => (
+                          <span key={idx} className="px-3 py-1.5 bg-rose-500/10 text-rose-400 rounded-lg text-sm">
+                            {cat.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {spec?.l7_ddos_protection && (
+                    <div className="pt-4 border-t border-slate-700/50">
+                      <h4 className="text-xs font-medium text-slate-400 mb-2">L7 DDoS Protection</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <DetailItem
+                          label="Mitigation Action"
+                          value={spec.l7_ddos_protection.mitigation_block ? 'Block' : spec.l7_ddos_protection.mitigation_js_challenge ? 'JS Challenge' : spec.l7_ddos_protection.mitigation_captcha ? 'Captcha' : 'Default'}
+                          small
+                        />
+                        <DetailItem
+                          label="RPS Threshold"
+                          value={spec.l7_ddos_protection.custom_rps_threshold?.threshold ? `${spec.l7_ddos_protection.custom_rps_threshold.threshold}` : 'Default'}
+                          small
+                        />
+                        <DetailItem
+                          label="Client-Side Action"
+                          value={spec.l7_ddos_protection.clientside_action_block ? 'Block' : spec.l7_ddos_protection.clientside_action_redirect ? 'Redirect' : 'None'}
+                          small
+                        />
+                        <DetailItem
+                          label="DDoS Policy"
+                          value={spec.l7_ddos_protection.ddos_policy?.name || 'None'}
+                          small
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+              );
+            })()}
+          </div>
+        )}
+      </main>
+
+      {jsonModal && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setJsonModal(null)}
+        >
+          <div
+            className="bg-slate-800 border border-slate-700 rounded-xl max-w-4xl w-full max-h-[85vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+              <h3 className="font-semibold text-slate-200">{jsonModal.title}</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copyJson}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <Copy className="w-4 h-4" /> Copy
+                </button>
+                <button
+                  onClick={() => setJsonModal(null)}
+                  className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-6 overflow-auto max-h-[70vh]">
+              <pre className="text-sm text-slate-300 font-mono whitespace-pre-wrap">
+                {JSON.stringify(jsonModal.data, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailItem({
+  label,
+  value,
+  enabled,
+  warning,
+  small
+}: {
+  label: string;
+  value: string;
+  enabled?: boolean;
+  warning?: boolean;
+  small?: boolean;
+}) {
+  let valueColor = 'text-slate-300';
+  if (enabled === true) valueColor = 'text-emerald-400';
+  else if (enabled === false) valueColor = 'text-slate-500';
+  else if (warning) valueColor = 'text-amber-400';
+
+  return (
+    <div>
+      <span className={`text-slate-500 block ${small ? 'text-xs mb-0.5' : 'text-xs mb-1'}`}>{label}</span>
+      <span className={`${valueColor} ${small ? 'text-sm' : ''}`}>{value}</span>
+    </div>
+  );
+}
+
+function SecurityFeatureCard({
+  icon: Icon,
+  name,
+  enabled,
+  value,
+  details,
+}: {
+  icon: typeof Shield;
+  name: string;
+  enabled: boolean;
+  value: string;
+  details?: string;
+}) {
+  return (
+    <div className={`p-4 rounded-xl border ${enabled ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-700/30 border-slate-700'}`}>
+      <div className="flex items-start gap-3 mb-2">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${enabled ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700 text-slate-500'}`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-medium text-slate-300">{name}</h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={`w-2 h-2 rounded-full ${enabled ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+            <span className={`text-sm truncate ${enabled ? 'text-slate-200' : 'text-slate-500'}`}>{value}</span>
+          </div>
+          {details && (
+            <span className="text-xs text-slate-500 mt-1 block">{details}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeatureStatusItem({ label, enabled, disabled, fromAppType }: { label: string; enabled: boolean; disabled: boolean; fromAppType?: boolean }) {
+  const status = disabled ? 'disabled' : (enabled ? 'enabled' : 'not-configured');
+  return (
+    <div className={`p-3 rounded-lg border ${
+      status === 'enabled' ? 'bg-emerald-500/5 border-emerald-500/20' :
+      status === 'disabled' ? 'bg-red-500/5 border-red-500/20' :
+      'bg-slate-700/30 border-slate-700'
+    }`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-sm text-slate-300 truncate">{label}</span>
+          {fromAppType && (
+            <span className="flex-shrink-0 w-1.5 h-1.5 bg-violet-400 rounded-full" title="From App Type" />
+          )}
+        </div>
+        <span className={`flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium ${
+          status === 'enabled' ? 'bg-emerald-500/15 text-emerald-400' :
+          status === 'disabled' ? 'bg-red-500/15 text-red-400' :
+          'bg-slate-700 text-slate-500'
+        }`}>
+          {status === 'enabled' ? 'Enabled' : status === 'disabled' ? 'Disabled' : 'Off'}
+        </span>
+      </div>
+    </div>
+  );
+}
