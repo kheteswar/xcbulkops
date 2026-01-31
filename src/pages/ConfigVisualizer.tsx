@@ -2983,83 +2983,38 @@ export function ConfigVisualizer() {
                       );
                     })()}
 
-                    {(() => {
-                      const appTypeSettingSpec = state.appTypeSetting;
-                      const featureTypes = appTypeSettingSpec?.timeseries_analyses_setting?.metric_selectors || [];
-                      const hasDdosFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'TIMESERIES_ANOMALY_DETECTION');
-                      const hasMudFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'USER_BEHAVIOR_ANALYSIS');
-                      const hasPerReqFromAppType = featureTypes.some((f: { metric?: string }) => f.metric === 'PER_REQ_ANOMALY_DETECTION');
-                      const hasApiDiscoveryFromAppType = !appTypeSettingSpec?.api_discovery_setting?.disable_learn_from_redirect_traffic;
-
-                      return (
-                        <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-600/50 text-slate-300">
-                              <Shield className="w-5 h-5" />
+                    {(spec?.enable_ip_reputation || spec?.ip_reputation) && (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-500/15 text-amber-400">
+                              <Network className="w-5 h-5" />
                             </div>
-                            <h3 className="text-lg font-semibold text-slate-200">Security Features Status</h3>
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                            <FeatureStatusItem label="Bot Defense" enabled={!!spec?.bot_defense} disabled={!!spec?.disable_bot_defense} />
-                            <FeatureStatusItem label="IP Reputation" enabled={!!spec?.enable_ip_reputation || !!spec?.ip_reputation} disabled={!!spec?.disable_ip_reputation} />
-                            <FeatureStatusItem
-                              label="DDoS Detection"
-                              enabled={hasDdosFromAppType || !!spec?.enable_ddos_detection || !!spec?.ddos_detection || !!spec?.single_lb_app?.enable_ddos_detection}
-                              disabled={!hasDdosFromAppType && !!spec?.disable_ddos_detection}
-                            />
-                            <FeatureStatusItem
-                              label="API Discovery"
-                              enabled={hasApiDiscoveryFromAppType || !!spec?.enable_api_discovery || !!spec?.single_lb_app?.enable_discovery}
-                              disabled={!hasApiDiscoveryFromAppType && !!spec?.disable_api_discovery}
-                            />
-                            <FeatureStatusItem label="Client-Side Defense" enabled={!!spec?.client_side_defense} disabled={!!spec?.disable_client_side_defense} />
-                            <FeatureStatusItem
-                              label="Malicious User Detection"
-                              enabled={hasMudFromAppType || !!spec?.enable_malicious_user_detection || !!spec?.malicious_user_detection}
-                              disabled={!hasMudFromAppType && !!spec?.disable_malicious_user_detection}
-                            />
-                            <FeatureStatusItem label="Threat Mesh" enabled={!spec?.disable_threat_mesh} disabled={!!spec?.disable_threat_mesh} />
-                            <FeatureStatusItem label="Malware Protection" enabled={!spec?.disable_malware_protection} disabled={!!spec?.disable_malware_protection} />
-                            <FeatureStatusItem label="CSRF Protection" enabled={!!spec?.csrf_policy && !spec?.csrf_policy?.disabled} disabled={!!spec?.csrf_policy?.disabled} />
-                            {hasPerReqFromAppType && <FeatureStatusItem label="Per-Request Analysis" enabled={true} disabled={false} />}
-                            {spec?.rate_limiter && <FeatureStatusItem label="Rate Limiter" enabled={true} disabled={false} />}
-                            {spec?.api_definition && <FeatureStatusItem label="API Definition" enabled={true} disabled={false} />}
-                            {spec?.slow_ddos_mitigation && <FeatureStatusItem label="Slow DDoS Mitigation" enabled={true} disabled={false} />}
-                          </div>
-                          {(spec?.bot_defense || (spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object')) && (
-                            <div className="mt-4 pt-4 border-t border-slate-700/50 space-y-3">
-                              {spec?.bot_defense && (
-                                <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-                                  <div className="flex items-center gap-3">
-                                    <Bot className="w-5 h-5 text-teal-400" />
-                                    <div>
-                                      <span className="text-slate-300">Bot Defense Policy</span>
-                                      <span className="text-slate-500 ml-2">{spec.bot_defense.policy?.name || 'Default'}</span>
-                                    </div>
-                                  </div>
-                                  {spec.bot_defense.regional_endpoint && (
-                                    <span className="text-xs text-slate-400">Endpoint: {spec.bot_defense.regional_endpoint}</span>
-                                  )}
-                                </div>
-                              )}
-                              {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories && (
-                                <div className="p-3 bg-slate-800/50 rounded-lg">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <Network className="w-4 h-4 text-amber-400" />
-                                    <span className="text-slate-300 text-sm">IP Threat Categories</span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-1">
-                                    {((spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories || []).map((cat, i) => (
-                                      <span key={i} className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded text-xs">{cat}</span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-200">IP Reputation</h3>
                             </div>
-                          )}
+                            <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
+                          </div>
+                          <button
+                            onClick={() => setJsonModal({ title: 'IP Reputation Configuration', data: { enable_ip_reputation: spec?.enable_ip_reputation, ip_reputation: spec?.ip_reputation } })}
+                            className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-slate-700 rounded flex items-center gap-1.5 transition-colors"
+                          >
+                            <Code2 className="w-3.5 h-3.5" />
+                            View JSON
+                          </button>
                         </div>
-                      );
-                    })()}
+                        {spec?.enable_ip_reputation && typeof spec.enable_ip_reputation === 'object' && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories && (spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories!.length > 0 && (
+                          <div className="border-t border-slate-700/50 pt-4">
+                            <span className="text-xs text-slate-500 block mb-2">Threat Categories</span>
+                            <div className="flex flex-wrap gap-2">
+                              {((spec.enable_ip_reputation as { ip_threat_categories?: string[] }).ip_threat_categories || []).map((cat, i) => (
+                                <span key={i} className="px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded text-sm">{cat}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {(spec?.captcha_challenge || spec?.js_challenge || spec?.policy_based_challenge) && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
