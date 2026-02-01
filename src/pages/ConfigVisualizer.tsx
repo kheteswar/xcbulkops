@@ -294,11 +294,14 @@ export function ConfigVisualizer() {
             lb.spec.app_firewall.name
           );
           wafPolicies.set(lb.spec.app_firewall.name, waf as WAFPolicy);
-        } catch {
+        } catch (err) {
+          log(`Failed to fetch WAF from ${lb.spec.app_firewall.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           try {
             const waf = await apiClient.getWAFPolicy('shared', lb.spec.app_firewall.name);
             wafPolicies.set(lb.spec.app_firewall.name, { ...waf, shared: true } as WAFPolicy);
-          } catch {}
+          } catch (err2) {
+            log(`Failed to fetch WAF from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+          }
         }
       }
 
@@ -308,11 +311,14 @@ export function ConfigVisualizer() {
           try {
             const waf = await apiClient.getWAFPolicy(r.waf.namespace || selectedNs, r.waf.name);
             wafPolicies.set(r.waf.name, waf as WAFPolicy);
-          } catch {
+          } catch (err) {
+            log(`Failed to fetch route WAF from ${r.waf.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
             try {
               const waf = await apiClient.getWAFPolicy('shared', r.waf.name);
               wafPolicies.set(r.waf.name, { ...waf, shared: true } as WAFPolicy);
-            } catch {}
+            } catch (err2) {
+              log(`Failed to fetch route WAF from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+            }
           }
         }
       }
@@ -323,11 +329,14 @@ export function ConfigVisualizer() {
           try {
             const sp = await apiClient.get(`/api/config/namespaces/${pol.namespace || selectedNs}/service_policys/${pol.name}`);
             servicePolicies.set(pol.name, sp);
-          } catch {
+          } catch (err) {
+            log(`Failed to fetch service policy from ${pol.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
             try {
               const sp = await apiClient.get(`/api/config/namespaces/shared/service_policys/${pol.name}`);
               servicePolicies.set(pol.name, sp);
-            } catch {}
+            } catch (err2) {
+              log(`Failed to fetch service policy from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+            }
           }
         }
       }
@@ -358,20 +367,26 @@ export function ConfigVisualizer() {
                 try {
                   const check = await apiClient.getHealthCheck(hc.namespace || ns, hc.name);
                   healthChecks.set(hc.name, check as HealthCheck);
-                } catch {
+                } catch (err) {
+                  log(`Failed to fetch health check from ${hc.namespace || ns}: ${err instanceof Error ? err.message : 'Unknown error'}`);
                   try {
                     const check = await apiClient.getHealthCheck('shared', hc.name);
                     healthChecks.set(hc.name, check as HealthCheck);
-                  } catch {}
+                  } catch (err2) {
+                    log(`Failed to fetch health check from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+                  }
                 }
               }
             }
           }
-        } catch {
+        } catch (err) {
+          log(`Failed to fetch origin pool from ${ns}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           try {
             const pool = await apiClient.getOriginPool('shared', name);
             originPools.set(name, pool);
-          } catch {}
+          } catch (err2) {
+            log(`Failed to fetch origin pool from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+          }
         }
       }
 
@@ -387,8 +402,8 @@ export function ConfigVisualizer() {
             try {
               const vSite = await apiClient.getVirtualSite(vs.namespace, vs.name);
               virtualSites.set(`${vs.namespace}/${vs.name}`, vSite);
-            } catch {
-              log(`Could not fetch virtual site: ${vs.namespace}/${vs.name}`);
+            } catch (err) {
+              log(`Could not fetch virtual site ${vs.namespace}/${vs.name}: ${err instanceof Error ? err.message : 'Unknown error'}`);
             }
           }
         }
@@ -402,8 +417,8 @@ export function ConfigVisualizer() {
         log(`Fetching App Type: ${appTypeName}`);
         try {
           appType = await apiClient.getAppType(appTypeName);
-        } catch {
-          log(`Could not fetch app_type: ${appTypeName}`);
+        } catch (err) {
+          log(`Could not fetch app_type ${appTypeName}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
 
         log(`Fetching App Settings for namespace: ${selectedNs}`);
@@ -424,8 +439,8 @@ export function ConfigVisualizer() {
               }
             }
           }
-        } catch {
-          log(`Could not fetch app_settings for namespace: ${selectedNs}`);
+        } catch (err) {
+          log(`Could not fetch app_settings for namespace ${selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
 
         if (!appSetting) {
@@ -447,8 +462,8 @@ export function ConfigVisualizer() {
                 }
               }
             }
-          } catch {
-            log(`Could not fetch app_settings from shared namespace`);
+          } catch (err) {
+            log(`Could not fetch app_settings from shared namespace: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
       }
@@ -460,11 +475,12 @@ export function ConfigVisualizer() {
         log(`Fetching User Identification Policy: ${userIdName}`);
         try {
           userIdentificationPolicy = await apiClient.getUserIdentificationPolicy(userIdNs, userIdName);
-        } catch {
+        } catch (err) {
+          log(`Failed to fetch user identification policy from ${userIdNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           try {
             userIdentificationPolicy = await apiClient.getUserIdentificationPolicy('shared', userIdName);
-          } catch {
-            log(`Could not fetch User Identification Policy: ${userIdName}`);
+          } catch (err2) {
+            log(`Could not fetch User Identification Policy ${userIdName}: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
           }
         }
       }
