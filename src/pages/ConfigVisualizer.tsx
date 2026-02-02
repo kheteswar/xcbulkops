@@ -1366,7 +1366,7 @@ export function ConfigVisualizer() {
           </section>
         )}
 
-        {/* 5. TLS Configuration */}
+       {/* 5. TLS Configuration */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
           <button
             onClick={() => toggleSection('tls')}
@@ -1418,8 +1418,8 @@ export function ConfigVisualizer() {
                     />
                   </div>
 
-                  {/* AUTO CERT DETAILS (New Feature) */}
-                  {spec?.auto_cert_info && (
+                  {/* AUTO CERT DETAILS - STRICT CHECK: Only if https_auto_cert is present */}
+                  {spec?.https_auto_cert && spec?.auto_cert_info && (
                     <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                       <div className="flex items-center gap-3 mb-4">
                         <ShieldCheck className="w-6 h-6 text-emerald-400" />
@@ -1474,13 +1474,12 @@ export function ConfigVisualizer() {
                     </div>
                   )}
 
-                  {/* CUSTOM CERTIFICATES DETAILS */}
-                  {(() => {
-                    const tlsConfig = spec?.https_auto_cert || spec?.https;
-                    // Updated logic: Check tls_cert_params as well
-                    const certs = tlsConfig?.tls_certificates || 
-                                  tlsConfig?.tls_config?.tls_certificates ||
-                                  tlsConfig?.tls_cert_params?.certificates;
+                  {/* CUSTOM CERTIFICATES DETAILS - STRICT CHECK: Only if https is present */}
+                  {spec?.https && (() => {
+                    const tlsConfig = spec.https;
+                    const certs = tlsConfig.tls_certificates || 
+                                  tlsConfig.tls_config?.tls_certificates ||
+                                  tlsConfig.tls_cert_params?.certificates;
 
                     if (!certs?.length) return null;
 
