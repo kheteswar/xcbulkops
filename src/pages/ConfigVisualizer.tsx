@@ -986,9 +986,9 @@ export function ConfigVisualizer() {
 
     return (
       <div className="space-y-6">
-        {/* 1. Header & Meta */}
+        {/* 1. Header & Meta */} 
         <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-start justify-between mb-6">
+          <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400">
                 <Globe className="w-7 h-7" />
@@ -1008,25 +1008,13 @@ export function ConfigVisualizer() {
                   )}
                 </div>
                 <h1 className="text-2xl font-bold text-slate-100">{lb.metadata?.name}</h1>
-                
-                {/* METADATA ROW */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500">
-                  <span className="flex items-center gap-1.5" title="Namespace">
+                <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                  <span className="flex items-center gap-1">
                     <Home className="w-4 h-4" /> {lb.metadata?.namespace}
                   </span>
-                  <span className="flex items-center gap-1.5" title="Created At">
-                    <Clock className="w-4 h-4" /> {formatDate(sysMeta?.creation_timestamp)}
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" /> Created: {formatDate(sysMeta?.creation_timestamp)}
                   </span>
-                  {sysMeta?.modification_timestamp && (
-                    <span className="flex items-center gap-1.5" title="Last Modified">
-                      <RefreshCw className="w-3.5 h-3.5" /> {formatDate(sysMeta.modification_timestamp)}
-                    </span>
-                  )}
-                  {sysMeta?.creator_id && (
-                    <span className="flex items-center gap-1.5" title="Creator ID">
-                      <User className="w-3.5 h-3.5" /> {sysMeta.creator_id}
-                    </span>
-                  )}
                 </div>
               </div>
             </div>
@@ -1038,40 +1026,24 @@ export function ConfigVisualizer() {
             </button>
           </div>
 
-          {/* NETWORK DETAILS GRID (VIP & CNAME) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-700/50">
-            {spec?.host_name && (
-              <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-500 block mb-1">CNAME (Host Name)</span>
-                  <code className="text-sm text-cyan-400 font-mono break-all">{spec.host_name}</code>
-                </div>
-                <button 
-                  onClick={() => navigator.clipboard.writeText(spec.host_name)}
-                  className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
+          {lb.metadata?.labels && Object.keys(lb.metadata.labels).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-700">
+              <div className="flex items-center gap-2 mb-2">
+                <Hash className="w-4 h-4 text-slate-400" />
+                <span className="text-sm font-medium text-slate-400">Labels</span>
               </div>
-            )}
-            
-            {spec?.dns_info && spec.dns_info.length > 0 && (
-              <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-slate-500 block mb-1">VIP IP Address</span>
-                  <code className="text-sm text-emerald-400 font-mono">
-                    {spec.dns_info.map((info: any) => info.ip_address).join(', ')}
-                  </code>
-                </div>
-                <button 
-                  onClick={() => navigator.clipboard.writeText(spec.dns_info[0]?.ip_address || '')}
-                  className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(lb.metadata.labels).map(([key, value]) => (
+                  <span key={key} className="inline-flex items-center px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
+                    <span className="text-blue-400 font-medium">{key}</span>
+                    <span className="text-slate-500 mx-1.5">=</span>
+                    <span className="text-slate-300">{String(value)}</span>
+                  </span>
+                ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
 
         {/* 2. Stats Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -1347,7 +1319,7 @@ export function ConfigVisualizer() {
           </section>
         )}
 
-        {/* 5. TLS Configuration */} 
+        {/* 5. TLS Configuration */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
           <button
             onClick={() => toggleSection('tls')}
