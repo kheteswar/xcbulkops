@@ -582,6 +582,10 @@ export function ConfigVisualizer() {
       const spec = cdn.spec as any; 
       const sysMeta = cdn.system_metadata as any;
 
+      // Helper to safely get nested logging options
+      const loggingOpts = spec.other_settings?.logging_options || spec.logging_options;
+      const otherSettings = spec.other_settings || {};
+
       // Calculate counts for stats
       const spCount = spec.active_service_policies?.policies?.length ?? (spec.service_policies_from_namespace ? 'Namespace' : 0);
       const clientListCount = (spec.trusted_clients?.length || 0) + (spec.blocked_clients?.length || 0);
@@ -765,6 +769,11 @@ export function ConfigVisualizer() {
                                 <DetailItem label="Refresh Interval" value={spec.origin_pool.public_name?.refresh_interval ? `${spec.origin_pool.public_name.refresh_interval}s` : 'N/A'} />
                                 <DetailItem label="Protocol" value={spec.origin_pool.no_tls ? 'HTTP (No TLS)' : 'HTTPS (TLS)'} warning={!!spec.origin_pool.no_tls} />
                                 <DetailItem label="Timeout" value={spec.origin_pool.origin_request_timeout || 'Default'} />
+                                <DetailItem 
+                                    label="Follow Redirect" 
+                                    value={spec.origin_pool.follow_origin_redirect ? 'Enabled' : 'Disabled'} 
+                                    enabled={spec.origin_pool.follow_origin_redirect}
+                                />
                              </div>
 
                              {/* Advanced Origin Options */}
@@ -1013,7 +1022,7 @@ export function ConfigVisualizer() {
                 )}
             </section>
 
-            {/* 9. Access Control & DDoS (New) */}
+            {/* 9. Access Control & DDoS */}
             {(clientListCount > 0 || ddosRuleCount > 0) && (
                 <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                     <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
@@ -1069,19 +1078,20 @@ export function ConfigVisualizer() {
                 </section>
             )}
 
-            {/* 10. Observability & Logging (New) */}
-            {(spec.logging_options || spec.more_option?.custom_errors) && (
+            {/* 10. Observability & Logging (Fixed Check) */}
+            {(loggingOpts || spec.more_option?.custom_errors || otherSettings.add_location) && (
                 <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                     <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
                         <Activity className="w-5 h-5 text-blue-400" />
                         <h2 className="text-lg font-semibold text-slate-100">Observability & Logging</h2>
                     </div>
                     <div className="p-6 space-y-4">
-                        {spec.logging_options?.client_log_options?.header_list && (
+                        {/* Header List */}
+                        {loggingOpts?.client_log_options?.header_list && (
                             <div>
                                 <span className="text-xs text-slate-500 block mb-2">Log Headers (Captured in Logs)</span>
                                 <div className="flex flex-wrap gap-2">
-                                    {spec.logging_options.client_log_options.header_list.map((h: string, i: number) => (
+                                    {loggingOpts.client_log_options.header_list.map((h: string, i: number) => (
                                         <span key={i} className="px-3 py-1 bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded text-sm font-mono">
                                             {h}
                                         </span>
@@ -1089,8 +1099,19 @@ export function ConfigVisualizer() {
                                 </div>
                             </div>
                         )}
+
+                        {/* Add Location */}
+                        {otherSettings.add_location !== undefined && (
+                            <div className="pt-2">
+                                <DetailItem 
+                                    label="Add Location Data" 
+                                    value={otherSettings.add_location ? 'Enabled' : 'Disabled'}
+                                    enabled={otherSettings.add_location}
+                                />
+                            </div>
+                        )}
                         
-                        {/* Error Pages (if present in more_options for CDN) */}
+                        {/* Error Pages */}
                         {spec.more_option?.custom_errors && (
                             <div className="pt-4 border-t border-slate-700/50">
                                 <span className="text-xs text-slate-500 block mb-2">Custom Error Pages</span>
