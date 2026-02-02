@@ -43,7 +43,7 @@ import {
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
+import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, SimpleRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
 
 const FEATURE_TYPE_NAMES: Record<string, string> = {
@@ -2600,7 +2600,11 @@ export function ConfigVisualizer() {
                       <div className="space-y-4">
                         {spec.active_service_policies.policies.map((pol, i) => {
                           const spData = state.servicePolicies.get(pol.name) as ServicePolicy | undefined;
-                          const rules = spData?.spec?.rule_list?.rules || spData?.spec?.deny_list?.rules || spData?.spec?.allow_list?.rules || [];
+                          const complexRules = spData?.spec?.rule_list?.rules || spData?.spec?.deny_list?.rules || spData?.spec?.allow_list?.rules || spData?.spec?.rules || [];
+                          const simpleRules = spData?.spec?.simple_rules || [];
+                          const hasComplexRules = complexRules.length > 0;
+                          const hasSimpleRules = simpleRules.length > 0;
+                          const totalRules = complexRules.length + simpleRules.length;
                           return (
                             <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
                               <div className="flex items-center justify-between mb-3">
@@ -2610,6 +2614,7 @@ export function ConfigVisualizer() {
                                   <span className="text-xs text-slate-500">{pol.namespace || state.namespace}</span>
                                   {spData?.spec?.deny_list && <span className="px-2 py-0.5 bg-red-500/15 text-red-400 rounded text-xs">Deny List</span>}
                                   {spData?.spec?.allow_list && <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-xs">Allow List</span>}
+                                  {hasSimpleRules && !hasComplexRules && <span className="px-2 py-0.5 bg-blue-500/15 text-blue-400 rounded text-xs">Simple Rules</span>}
                                 </div>
                                 {spData && (
                                   <button
@@ -2624,18 +2629,18 @@ export function ConfigVisualizer() {
                                 <>
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                                     <DetailItem label="Algorithm" value={spData.spec.algo || 'FIRST_MATCH'} small />
-                                    <DetailItem label="Rules" value={rules.length.toString()} small />
+                                    <DetailItem label="Rules" value={totalRules.toString()} small />
                                     <DetailItem label="Any Server" value={spData.spec.any_server ? 'Yes' : 'No'} small />
                                     {spData.spec.server_name && (
                                       <DetailItem label="Server Name" value={spData.spec.server_name} small />
                                     )}
                                   </div>
 
-                                  {rules.length > 0 && (
+                                  {hasComplexRules && (
                                     <div className="mt-3 pt-3 border-t border-slate-700/50">
                                       <span className="text-xs text-slate-500 block mb-2">Policy Rules</span>
                                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                                        {rules.slice(0, 5).map((rule, ruleIdx) => {
+                                        {complexRules.slice(0, 5).map((rule, ruleIdx) => {
                                           const r = rule as ServicePolicyRule;
                                           return (
                                             <div key={ruleIdx} className="p-2 bg-slate-900/50 rounded text-sm">
@@ -2647,7 +2652,7 @@ export function ConfigVisualizer() {
                                                   r.spec?.action === 'DENY' ? 'bg-red-500/15 text-red-400' :
                                                   'bg-slate-700 text-slate-400'
                                                 }`}>
-                                                  {r.spec?.action || 'ALLOW'}
+                                                  {r.spec?.action || 'NEXT_POLICY'}
                                                 </span>
                                               </div>
                                               <div className="flex flex-wrap gap-2 text-xs">
@@ -2669,9 +2674,61 @@ export function ConfigVisualizer() {
                                             </div>
                                           );
                                         })}
-                                        {rules.length > 5 && (
+                                        {complexRules.length > 5 && (
                                           <div className="text-center text-slate-500 text-xs py-1">
-                                            ... and {rules.length - 5} more rules
+                                            ... and {complexRules.length - 5} more rules
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {hasSimpleRules && (
+                                    <div className={`mt-3 pt-3 ${hasComplexRules ? '' : 'border-t border-slate-700/50'}`}>
+                                      <span className="text-xs text-slate-500 block mb-2">Simple Rules</span>
+                                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {simpleRules.slice(0, 5).map((rule, ruleIdx) => (
+                                          <div key={ruleIdx} className="p-2 bg-slate-900/50 rounded text-sm">
+                                            <div className="flex items-center gap-2 mb-1">
+                                              <span className="text-slate-400 font-mono text-xs">{ruleIdx + 1}</span>
+                                              <span className="text-slate-200">{rule.name || `Rule ${ruleIdx + 1}`}</span>
+                                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                                rule.action === 'ALLOW' ? 'bg-emerald-500/15 text-emerald-400' :
+                                                rule.action === 'DENY' ? 'bg-red-500/15 text-red-400' :
+                                                'bg-slate-700 text-slate-400'
+                                              }`}>
+                                                {rule.action || 'ALLOW'}
+                                              </span>
+                                              {rule.challenge_action && rule.challenge_action !== 'DEFAULT_CHALLENGE' && (
+                                                <span className="px-1.5 py-0.5 rounded text-xs bg-amber-500/15 text-amber-400">
+                                                  {rule.challenge_action}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex flex-wrap gap-2 text-xs">
+                                              {rule.http_method?.methods && rule.http_method.methods.length > 0 && (
+                                                <span className="text-amber-400">{rule.http_method.methods.join(', ')}</span>
+                                              )}
+                                              {rule.path?.prefix && <span className="text-cyan-400">Path: {rule.path.prefix}</span>}
+                                              {rule.path?.regex && <span className="text-cyan-400">Regex: {rule.path.regex}</span>}
+                                              {rule.ip_prefix_list?.prefixes && rule.ip_prefix_list.prefixes.length > 0 && (
+                                                <span className="text-blue-400">{rule.ip_prefix_list.prefixes.length} IP prefix(es)</span>
+                                              )}
+                                              {rule.asn_list?.as_numbers && rule.asn_list.as_numbers.length > 0 && (
+                                                <span className="text-slate-400">{rule.asn_list.as_numbers.length} ASN(s)</span>
+                                              )}
+                                              {rule.headers && rule.headers.length > 0 && (
+                                                <span className="text-slate-400">{rule.headers.length} header(s)</span>
+                                              )}
+                                              {rule.waf_action?.waf_skip_processing && <span className="text-red-400">Skip WAF</span>}
+                                              {rule.waf_action?.waf_in_monitoring_mode && <span className="text-amber-400">WAF Monitor</span>}
+                                              {rule.description && <span className="text-slate-500 italic">{rule.description}</span>}
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {simpleRules.length > 5 && (
+                                          <div className="text-center text-slate-500 text-xs py-1">
+                                            ... and {simpleRules.length - 5} more rules
                                           </div>
                                         )}
                                       </div>
