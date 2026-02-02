@@ -582,6 +582,11 @@ export function ConfigVisualizer() {
       const spec = cdn.spec as any; 
       const sysMeta = cdn.system_metadata as any;
 
+      // Calculate counts for stats
+      const spCount = spec.active_service_policies?.policies?.length ?? (spec.service_policies_from_namespace ? 'Namespace' : 0);
+      const clientListCount = (spec.trusted_clients?.length || 0) + (spec.blocked_clients?.length || 0);
+      const ddosRuleCount = spec.ddos_mitigation_rules?.length || 0;
+
       return (
         <div className="space-y-6">
             {/* 1. Header & Meta */}
@@ -626,23 +631,26 @@ export function ConfigVisualizer() {
             </div>
 
             {/* 2. Stats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
                  {[
                      { label: 'Domains', value: spec?.domains?.length || 0, icon: Globe, color: 'text-blue-400' },
                      { label: 'Cache Rules', value: (spec?.cdn_settings?.cache_rules?.length || 0) + (spec?.custom_cache_rule?.cdn_cache_rules?.length || 0), icon: HardDrive, color: 'text-amber-400' },
+                     { label: 'Service Policies', value: spCount, icon: FileText, color: 'text-teal-400' },
                      { label: 'WAF', value: spec?.app_firewall ? 'Enabled' : 'Disabled', icon: Shield, color: spec?.app_firewall ? 'text-emerald-400' : 'text-slate-500' },
                      { label: 'User ID', value: spec?.user_identification ? 'Enabled' : 'Disabled', icon: User, color: spec?.user_identification ? 'text-cyan-400' : 'text-slate-500' },
                      { label: 'Bot Defense', value: !spec?.disable_bot_defense ? 'Enabled' : 'Disabled', icon: Bot, color: !spec?.disable_bot_defense ? 'text-purple-400' : 'text-slate-500' },
+                     { label: 'Client Lists', value: clientListCount, icon: User, color: clientListCount > 0 ? 'text-indigo-400' : 'text-slate-500' },
+                     { label: 'DDoS Rules', value: ddosRuleCount, icon: ShieldAlert, color: ddosRuleCount > 0 ? 'text-rose-400' : 'text-slate-500' },
                  ].map(stat => (
                     <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
                         <div className={`w-7 h-7 mb-1.5 ${stat.color}`}><stat.icon className="w-full h-full" /></div>
-                        <div className="text-lg font-bold text-slate-100">{stat.value}</div>
+                        <div className={`text-lg font-bold ${typeof stat.value === 'string' && (stat.value === 'Enabled' || stat.value === 'Namespace') ? 'text-emerald-400 text-base' : 'text-slate-100'}`}>{stat.value}</div>
                         <div className="text-xs text-slate-500">{stat.label}</div>
                     </div>
                  ))}
             </div>
 
-            {/* 3. Service Domains (Standard Style) */}
+            {/* 3. Service Domains */}
             {spec.service_domains && spec.service_domains.length > 0 && (
                 <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                     <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
@@ -823,7 +831,7 @@ export function ConfigVisualizer() {
                                         const ruleDetail = state.cacheRules.get(ref.name);
                                         const ruleSpec = ruleDetail?.spec?.cache_rules; 
                                         
-                                        // 1. Determine Action (Bypass vs Cache)
+                                        // 1. Determine Action
                                         const isBypass = ruleSpec?.cache_bypass;
                                         const eligible = ruleSpec?.eligible_for_cache;
                                         
@@ -862,7 +870,6 @@ export function ConfigVisualizer() {
                                                             enabled={!isBypass}
                                                         />
                                                         
-                                                        {/* Show Cache Key Type if caching is enabled */}
                                                         {!isBypass && (
                                                             <div className="col-span-2 md:col-span-1">
                                                                 <span className="text-xs text-slate-500 block mb-0.5">Cache Key</span>
@@ -903,7 +910,7 @@ export function ConfigVisualizer() {
                  )}
             </section>
 
-            {/* 7. Header Modifications (If present) */}
+            {/* 7. Header Modifications */}
             {(spec.request_headers_to_add || spec.response_headers_to_add) && (
                 <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                     <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
@@ -954,7 +961,7 @@ export function ConfigVisualizer() {
                 </button>
                 
                 {expandedSections.has('security') && (
-                    <div className="p-6 space-y-4">
+                    <div className="p-6 space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* WAF Card */}
                             <div className={`p-4 rounded-lg border ${spec.app_firewall ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-700/30 border-slate-700/50'}`}>
@@ -1005,6 +1012,101 @@ export function ConfigVisualizer() {
                     </div>
                 )}
             </section>
+
+            {/* 9. Access Control & DDoS (New) */}
+            {(clientListCount > 0 || ddosRuleCount > 0) && (
+                <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                        <ShieldAlert className="w-5 h-5 text-rose-400" />
+                        <h2 className="text-lg font-semibold text-slate-100">Access Control & DDoS</h2>
+                    </div>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Client Lists */}
+                        {clientListCount > 0 && (
+                            <div>
+                                <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                                    <User className="w-4 h-4 text-indigo-400" /> Client Lists
+                                </h4>
+                                <div className="space-y-2">
+                                    {spec.blocked_clients?.map((c: any, i: number) => (
+                                        <div key={`blk-${i}`} className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded flex justify-between items-center text-sm">
+                                            <span className="text-red-300">{c.ip_prefix || `ASN ${c.as_number}`}</span>
+                                            <span className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded">Blocked</span>
+                                        </div>
+                                    ))}
+                                    {spec.trusted_clients?.map((c: any, i: number) => (
+                                        <div key={`trst-${i}`} className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded flex justify-between items-center text-sm">
+                                            <span className="text-emerald-300">{c.ip_prefix || `ASN ${c.as_number}`}</span>
+                                            <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">Trusted</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* DDoS Rules */}
+                        {ddosRuleCount > 0 && (
+                            <div>
+                                <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                                    <ShieldAlert className="w-4 h-4 text-rose-400" /> DDoS Rules
+                                </h4>
+                                <div className="space-y-2">
+                                    {spec.ddos_mitigation_rules.map((rule: any, i: number) => (
+                                        <div key={i} className="p-3 bg-slate-700/30 rounded border border-slate-700/50 text-sm">
+                                            <div className="flex justify-between mb-1">
+                                                <span className="text-slate-300 font-medium">{rule.metadata?.name}</span>
+                                                <span className="text-xs text-slate-500">Rule {i+1}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-400">
+                                                Action: <span className="text-amber-400">{Object.keys(rule.mitigation_action || {}).join(', ') || 'None'}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            )}
+
+            {/* 10. Observability & Logging (New) */}
+            {(spec.logging_options || spec.more_option?.custom_errors) && (
+                <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                        <Activity className="w-5 h-5 text-blue-400" />
+                        <h2 className="text-lg font-semibold text-slate-100">Observability & Logging</h2>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        {spec.logging_options?.client_log_options?.header_list && (
+                            <div>
+                                <span className="text-xs text-slate-500 block mb-2">Log Headers (Captured in Logs)</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {spec.logging_options.client_log_options.header_list.map((h: string, i: number) => (
+                                        <span key={i} className="px-3 py-1 bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded text-sm font-mono">
+                                            {h}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Error Pages (if present in more_options for CDN) */}
+                        {spec.more_option?.custom_errors && (
+                            <div className="pt-4 border-t border-slate-700/50">
+                                <span className="text-xs text-slate-500 block mb-2">Custom Error Pages</span>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {Object.keys(spec.more_option.custom_errors).map((code) => (
+                                        <div key={code} className="px-3 py-2 bg-slate-700/30 rounded text-sm flex justify-between">
+                                            <span className="text-amber-400 font-mono">{code}</span>
+                                            <span className="text-slate-400">Custom</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            )}
         </div>
       );
   };
