@@ -43,7 +43,7 @@ import {
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, SimpleRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
+import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
 
 const FEATURE_TYPE_NAMES: Record<string, string> = {
@@ -336,14 +336,6 @@ export function ConfigVisualizer() {
               servicePolicies.set(pol.name, sp);
             } catch (err2) {
               log(`Failed to fetch service policy from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-              // Fallback to ves-io-shared namespace (for system policies like ves-io-allow-all)
-              try {
-                const sp = await apiClient.get(`/api/config/namespaces/ves-io-shared/service_policys/${pol.name}`);
-                servicePolicies.set(pol.name, sp);
-                log(`Found service policy ${pol.name} in ves-io-shared namespace`);
-              } catch (err3) {
-                log(`Failed to fetch service policy from ves-io-shared: ${err3 instanceof Error ? err3.message : 'Unknown error'}`);
-              }
             }
           }
         }
@@ -1340,7 +1332,7 @@ export function ConfigVisualizer() {
                             )}
                           </div>
 
-                          {((r.headerMatchers?.length ?? 0) > 0 || (r.queryParams?.length ?? 0) > 0 || r.corsPolicy || r.retries) && (
+                          {(r.headerMatchers?.length || r.queryParams?.length || r.corsPolicy || r.retries) && (
                             <div className="pt-3 border-t border-slate-700/50 grid grid-cols-2 md:grid-cols-4 gap-3">
                               {r.headerMatchers && r.headerMatchers.length > 0 && (
                                 <div>
@@ -2600,11 +2592,7 @@ export function ConfigVisualizer() {
                       <div className="space-y-4">
                         {spec.active_service_policies.policies.map((pol, i) => {
                           const spData = state.servicePolicies.get(pol.name) as ServicePolicy | undefined;
-                          const complexRules = spData?.spec?.rule_list?.rules || spData?.spec?.deny_list?.rules || spData?.spec?.allow_list?.rules || spData?.spec?.rules || [];
-                          const simpleRules = spData?.spec?.simple_rules || [];
-                          const hasComplexRules = complexRules.length > 0;
-                          const hasSimpleRules = simpleRules.length > 0;
-                          const totalRules = complexRules.length + simpleRules.length;
+                          const rules = spData?.spec?.rule_list?.rules || spData?.spec?.deny_list?.rules || spData?.spec?.allow_list?.rules || [];
                           return (
                             <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
                               <div className="flex items-center justify-between mb-3">
@@ -2614,7 +2602,6 @@ export function ConfigVisualizer() {
                                   <span className="text-xs text-slate-500">{pol.namespace || state.namespace}</span>
                                   {spData?.spec?.deny_list && <span className="px-2 py-0.5 bg-red-500/15 text-red-400 rounded text-xs">Deny List</span>}
                                   {spData?.spec?.allow_list && <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-xs">Allow List</span>}
-                                  {hasSimpleRules && !hasComplexRules && <span className="px-2 py-0.5 bg-blue-500/15 text-blue-400 rounded text-xs">Simple Rules</span>}
                                 </div>
                                 {spData && (
                                   <button
@@ -2629,18 +2616,18 @@ export function ConfigVisualizer() {
                                 <>
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                                     <DetailItem label="Algorithm" value={spData.spec.algo || 'FIRST_MATCH'} small />
-                                    <DetailItem label="Rules" value={totalRules.toString()} small />
+                                    <DetailItem label="Rules" value={rules.length.toString()} small />
                                     <DetailItem label="Any Server" value={spData.spec.any_server ? 'Yes' : 'No'} small />
                                     {spData.spec.server_name && (
                                       <DetailItem label="Server Name" value={spData.spec.server_name} small />
                                     )}
                                   </div>
 
-                                  {hasComplexRules && (
+                                  {rules.length > 0 && (
                                     <div className="mt-3 pt-3 border-t border-slate-700/50">
                                       <span className="text-xs text-slate-500 block mb-2">Policy Rules</span>
                                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                                        {complexRules.slice(0, 5).map((rule, ruleIdx) => {
+                                        {rules.slice(0, 5).map((rule, ruleIdx) => {
                                           const r = rule as ServicePolicyRule;
                                           return (
                                             <div key={ruleIdx} className="p-2 bg-slate-900/50 rounded text-sm">
@@ -2652,7 +2639,7 @@ export function ConfigVisualizer() {
                                                   r.spec?.action === 'DENY' ? 'bg-red-500/15 text-red-400' :
                                                   'bg-slate-700 text-slate-400'
                                                 }`}>
-                                                  {r.spec?.action || 'NEXT_POLICY'}
+                                                  {r.spec?.action || 'ALLOW'}
                                                 </span>
                                               </div>
                                               <div className="flex flex-wrap gap-2 text-xs">
@@ -2674,61 +2661,9 @@ export function ConfigVisualizer() {
                                             </div>
                                           );
                                         })}
-                                        {complexRules.length > 5 && (
+                                        {rules.length > 5 && (
                                           <div className="text-center text-slate-500 text-xs py-1">
-                                            ... and {complexRules.length - 5} more rules
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {hasSimpleRules && (
-                                    <div className={`mt-3 pt-3 ${hasComplexRules ? '' : 'border-t border-slate-700/50'}`}>
-                                      <span className="text-xs text-slate-500 block mb-2">Simple Rules</span>
-                                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                                        {simpleRules.slice(0, 5).map((rule, ruleIdx) => (
-                                          <div key={ruleIdx} className="p-2 bg-slate-900/50 rounded text-sm">
-                                            <div className="flex items-center gap-2 mb-1">
-                                              <span className="text-slate-400 font-mono text-xs">{ruleIdx + 1}</span>
-                                              <span className="text-slate-200">{rule.name || `Rule ${ruleIdx + 1}`}</span>
-                                              <span className={`px-1.5 py-0.5 rounded text-xs ${
-                                                rule.action === 'ALLOW' ? 'bg-emerald-500/15 text-emerald-400' :
-                                                rule.action === 'DENY' ? 'bg-red-500/15 text-red-400' :
-                                                'bg-slate-700 text-slate-400'
-                                              }`}>
-                                                {rule.action || 'ALLOW'}
-                                              </span>
-                                              {rule.challenge_action && rule.challenge_action !== 'DEFAULT_CHALLENGE' && (
-                                                <span className="px-1.5 py-0.5 rounded text-xs bg-amber-500/15 text-amber-400">
-                                                  {rule.challenge_action}
-                                                </span>
-                                              )}
-                                            </div>
-                                            <div className="flex flex-wrap gap-2 text-xs">
-                                              {rule.http_method?.methods && rule.http_method.methods.length > 0 && (
-                                                <span className="text-amber-400">{rule.http_method.methods.join(', ')}</span>
-                                              )}
-                                              {rule.path?.prefix && <span className="text-cyan-400">Path: {rule.path.prefix}</span>}
-                                              {rule.path?.regex && <span className="text-cyan-400">Regex: {rule.path.regex}</span>}
-                                              {rule.ip_prefix_list?.prefixes && rule.ip_prefix_list.prefixes.length > 0 && (
-                                                <span className="text-blue-400">{rule.ip_prefix_list.prefixes.length} IP prefix(es)</span>
-                                              )}
-                                              {rule.asn_list?.as_numbers && rule.asn_list.as_numbers.length > 0 && (
-                                                <span className="text-slate-400">{rule.asn_list.as_numbers.length} ASN(s)</span>
-                                              )}
-                                              {rule.headers && rule.headers.length > 0 && (
-                                                <span className="text-slate-400">{rule.headers.length} header(s)</span>
-                                              )}
-                                              {rule.waf_action?.waf_skip_processing && <span className="text-red-400">Skip WAF</span>}
-                                              {rule.waf_action?.waf_in_monitoring_mode && <span className="text-amber-400">WAF Monitor</span>}
-                                              {rule.description && <span className="text-slate-500 italic">{rule.description}</span>}
-                                            </div>
-                                          </div>
-                                        ))}
-                                        {simpleRules.length > 5 && (
-                                          <div className="text-center text-slate-500 text-xs py-1">
-                                            ... and {simpleRules.length - 5} more rules
+                                            ... and {rules.length - 5} more rules
                                           </div>
                                         )}
                                       </div>
@@ -2848,7 +2783,7 @@ export function ConfigVisualizer() {
                           <DetailItem label="Expose Headers" value={spec.cors_policy.expose_headers || '*'} />
                           <DetailItem label="Allow Credentials" value={spec.cors_policy.allow_credentials ? 'Yes' : 'No'} enabled={spec.cors_policy.allow_credentials} />
                         </div>
-                        {((spec.cors_policy.allow_origin?.length ?? 0) > 0 || (spec.cors_policy.allow_origin_regex?.length ?? 0) > 0) && (
+                        {(spec.cors_policy.allow_origin?.length || spec.cors_policy.allow_origin_regex?.length) && (
                           <div className="border-t border-slate-700/50 pt-4">
                             <span className="text-xs text-slate-500 block mb-2">Allowed Origins</span>
                             <div className="flex flex-wrap gap-2">
@@ -2897,7 +2832,7 @@ export function ConfigVisualizer() {
                       </div>
                     )}
 
-                    {((spec?.blocked_clients?.length ?? 0) > 0 || (spec?.trusted_clients?.length ?? 0) > 0) && (
+                    {(spec?.blocked_clients?.length || spec?.trusted_clients?.length) && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
@@ -3442,7 +3377,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {((moreOpts?.request_headers_to_add?.length ?? 0) > 0 || (spec?.request_headers_to_add?.length ?? 0) > 0) && (
+                        {(moreOpts?.request_headers_to_add?.length || spec?.request_headers_to_add?.length) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Request Headers to Add ({(moreOpts?.request_headers_to_add || spec?.request_headers_to_add || []).length})</span>
                             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -3457,7 +3392,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {((moreOpts?.response_headers_to_add?.length ?? 0) > 0 || (spec?.response_headers_to_add?.length ?? 0) > 0) && (
+                        {(moreOpts?.response_headers_to_add?.length || spec?.response_headers_to_add?.length) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Response Headers to Add ({(moreOpts?.response_headers_to_add || spec?.response_headers_to_add || []).length})</span>
                             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -3472,7 +3407,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {((moreOpts?.request_headers_to_remove?.length ?? 0) > 0 || (spec?.request_headers_to_remove?.length ?? 0) > 0) && (
+                        {(moreOpts?.request_headers_to_remove?.length || spec?.request_headers_to_remove?.length) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Request Headers to Remove</span>
                             <div className="flex flex-wrap gap-2">
@@ -3483,7 +3418,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {((moreOpts?.response_headers_to_remove?.length ?? 0) > 0 || (spec?.response_headers_to_remove?.length ?? 0) > 0) && (
+                        {(moreOpts?.response_headers_to_remove?.length || spec?.response_headers_to_remove?.length) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Response Headers to Remove</span>
                             <div className="flex flex-wrap gap-2">
