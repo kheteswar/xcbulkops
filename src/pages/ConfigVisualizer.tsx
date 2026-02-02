@@ -97,7 +97,7 @@ export function ConfigVisualizer() {
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [scanLog, setScanLog] = useState('');
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls', 'caching', 'apptype']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls', 'caching', 'apptype','advanced', 'features']));
 
   const [state, setState] = useState<ViewerState>({
     rootLB: null,
