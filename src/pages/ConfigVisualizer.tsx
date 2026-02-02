@@ -986,7 +986,7 @@ export function ConfigVisualizer() {
 
     return (
       <div className="space-y-6">
-        {/* 1. Header & Meta */} 
+        {/* 1. Header & Meta */}
         <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
@@ -3272,57 +3272,45 @@ export function ConfigVisualizer() {
 
       return (
         <div className="space-y-6">
-           {/* 1. Header & Meta */}
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400">
-                <Globe className="w-7 h-7" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`px-2 py-0.5 text-xs font-semibold rounded ${lbTypeClass} text-white`}>
-                    {lbType}
-                  </span>
-                  <span className="px-2 py-0.5 text-xs font-semibold rounded bg-slate-700 text-slate-300">
-                    {advertiseType}
-                  </span>
-                  {lb.metadata?.disable && (
-                    <span className="px-2 py-0.5 text-xs font-semibold rounded bg-red-500/20 text-red-400">
-                      Disabled
-                    </span>
-                  )}
+            {/* 1. Header & Meta */}
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-purple-500/15 rounded-xl flex items-center justify-center text-purple-400">
+                    <Cloud className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 text-xs font-semibold rounded bg-purple-600 text-white">CDN Distribution</span>
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded ${!spec.disable ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {spec.disable ? 'Disabled' : 'Active'}
+                      </span>
+                      {spec.state && (
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          {spec.state}
+                        </span>
+                      )}
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-100">{cdn.metadata?.name}</h1>
+                    <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
+                      <span className="flex items-center gap-1"><Home className="w-4 h-4" /> {cdn.metadata?.namespace}</span>
+                      <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Created: {formatDate(sysMeta?.creation_timestamp)}</span>
+                      {sysMeta?.modification_timestamp && (
+                        <span className="flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Modified: {formatDate(sysMeta.modification_timestamp)}</span>
+                      )}
+                      {sysMeta?.creator_id && (
+                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Creator: {sysMeta.creator_id}</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <h1 className="text-2xl font-bold text-slate-100">{lb.metadata?.name}</h1>
-                
-                {/* METADATA ROW */}
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500">
-                  <span className="flex items-center gap-1.5" title="Namespace">
-                    <Home className="w-4 h-4" /> {lb.metadata?.namespace}
-                  </span>
-                  <span className="flex items-center gap-1.5" title="Created At">
-                    <Clock className="w-4 h-4" /> {formatDate(sysMeta?.creation_timestamp)}
-                  </span>
-                  {sysMeta?.modification_timestamp && (
-                    <span className="flex items-center gap-1.5" title="Last Modified">
-                      <RefreshCw className="w-3.5 h-3.5" /> {formatDate(sysMeta.modification_timestamp)}
-                    </span>
-                  )}
-                  {sysMeta?.creator_id && (
-                    <span className="flex items-center gap-1.5" title="Creator ID">
-                      <User className="w-3.5 h-3.5" /> {sysMeta.creator_id}
-                    </span>
-                  )}
-                </div>
+                <button
+                  onClick={() => setJsonModal({ title: 'Complete CDN Configuration', data: cdn })}
+                  className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                >
+                  <Code className="w-4 h-4" /> JSON
+                </button>
               </div>
-            </div>
-            <button
-              onClick={() => setJsonModal({ title: 'Complete Load Balancer Configuration', data: lb })}
-              className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
-            >
-              <Code className="w-4 h-4" /> View Full JSON
-            </button>
-          </div>
             </div>
 
             {/* 2. Stats Grid */}
