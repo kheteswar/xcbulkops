@@ -587,8 +587,6 @@ export function ConfigVisualizer() {
     return labels[match] || labels.prefix;
   };
 
-
-
   // Helper for HTTP method colors (required for the Routes section)
   const getMethodColor = (method: string) => {
     const colors: Record<string, string> = {
@@ -625,6 +623,352 @@ export function ConfigVisualizer() {
     else if (spec?.advertise_on_public) advertiseType = 'Public (Custom)';
     else if (spec?.advertise_custom) advertiseType = 'Custom';
     else if (spec?.do_not_advertise) advertiseType = 'Not Advertised';
+
+    // --- HELPER: Reusable WAF Detail Renderer ---
+  const renderWafConfiguration = (waf: WAFPolicy | undefined) => {
+    const wafSpec = waf?.spec;
+    if (!wafSpec) return null;
+
+    const formatRiskAction = (action?: string) => {
+      if (!action) return 'Default';
+      if (action === 'AI_BLOCK') return 'Block';
+      if (action === 'AI_REPORT') return 'Report';
+      return action.replace('AI_', '');
+    };
+
+    return (
+      <div className="space-y-4 border-t border-slate-700/50 pt-4 mt-4">
+        {wafSpec.ai_risk_based_blocking && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5" /> Security Policy: AI Risk-Based Blocking
+            </span>
+            <div className="grid grid-cols-3 gap-3">
+              <DetailItem
+                label="High Risk"
+                value={formatRiskAction(wafSpec.ai_risk_based_blocking.high_risk_action)}
+                enabled={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_BLOCK'}
+                warning={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_REPORT'}
+                small
+              />
+              <DetailItem
+                label="Medium Risk"
+                value={formatRiskAction(wafSpec.ai_risk_based_blocking.medium_risk_action)}
+                enabled={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_BLOCK'}
+                warning={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_REPORT'}
+                small
+              />
+              <DetailItem
+                label="Low Risk"
+                value={formatRiskAction(wafSpec.ai_risk_based_blocking.low_risk_action)}
+                enabled={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_BLOCK'}
+                warning={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_REPORT'}
+                small
+              />
+            </div>
+          </div>
+        )}
+
+        {wafSpec.detection_settings && (
+          <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+            <span className="text-xs text-slate-500 block">Detection Settings</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              <DetailItem
+                label="Threat Campaigns"
+                value={wafSpec.detection_settings.disable_threat_campaigns !== undefined ? 'Disabled' : 'Enabled'}
+                enabled={wafSpec.detection_settings.disable_threat_campaigns === undefined}
+                small
+              />
+              <DetailItem
+                label="Suppression"
+                value={wafSpec.detection_settings.disable_suppression !== undefined ? 'Disabled' : 'Enabled'}
+                enabled={wafSpec.detection_settings.disable_suppression === undefined}
+                small
+              />
+              <DetailItem
+                label="Signature Accuracy"
+                value={
+                  wafSpec.detection_settings.signature_selection_setting?.high_medium_low_accuracy_signatures !== undefined ? 'High/Med/Low' :
+                  wafSpec.detection_settings.signature_selection_setting?.only_high_accuracy_signatures !== undefined ? 'High Only' : 'High/Med'
+                }
+                small
+              />
+              <DetailItem
+                label="Signature Staging"
+                value={
+                  wafSpec.detection_settings.stage_new_signatures?.staging_period
+                    ? `${wafSpec.detection_settings.stage_new_signatures.staging_period} days`
+                    : 'Disabled'
+                }
+                enabled={!!wafSpec.detection_settings.stage_new_signatures?.staging_period}
+                small
+              />
+              {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+                <DetailItem
+                  label="Disabled Attack Types"
+                  value={wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length.toString()}
+                  warning
+                  small
+                />
+              )}
+              {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+                <DetailItem
+                  label="Disabled Violations"
+                  value={wafSpec.detection_settings.violation_settings.disabled_violation_types.length.toString()}
+                  warning
+                  small
+                />
+              )}
+            </div>
+
+            {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
+              <div className="pt-3 border-t border-slate-700/50">
+                <span className="text-xs text-slate-500 block mb-2">Disabled Attack Types</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.map((at: string, idx: number) => (
+                    <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                      {at.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
+              <div className="pt-3 border-t border-slate-700/50">
+                <span className="text-xs text-slate-500 block mb-2">Disabled Violation Types</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {wafSpec.detection_settings.violation_settings.disabled_violation_types.map((vt: string, idx: number) => (
+                    <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
+                      {vt.replace('VIOL_', '').replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {wafSpec.detection_settings.bot_protection_setting && (
+              <div className="pt-3 border-t border-slate-700/50">
+                <span className="text-xs text-slate-500 block mb-2">Bot Protection Settings</span>
+                <div className="grid grid-cols-3 gap-3">
+                  <DetailItem
+                    label="Malicious Bots"
+                    value={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action || 'Default'}
+                    enabled={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                    warning={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                    small
+                  />
+                  <DetailItem
+                    label="Suspicious Bots"
+                    value={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action || 'Default'}
+                    enabled={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                    small
+                  />
+                  <DetailItem
+                    label="Good Bots"
+                    value={wafSpec.detection_settings.bot_protection_setting.good_bot_action || 'Default'}
+                    small
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {wafSpec.bot_protection_setting && !wafSpec.detection_settings?.bot_protection_setting && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">Bot Protection Settings</span>
+            <div className="grid grid-cols-3 gap-3">
+              <DetailItem
+                label="Malicious Bots"
+                value={wafSpec.bot_protection_setting.malicious_bot_action || 'Default'}
+                enabled={wafSpec.bot_protection_setting.malicious_bot_action === 'BLOCK'}
+                warning={wafSpec.bot_protection_setting.malicious_bot_action === 'IGNORE'}
+                small
+              />
+              <DetailItem
+                label="Suspicious Bots"
+                value={wafSpec.bot_protection_setting.suspicious_bot_action || 'Default'}
+                enabled={wafSpec.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
+                small
+              />
+              <DetailItem
+                label="Good Bots"
+                value={wafSpec.bot_protection_setting.good_bot_action || 'Default'}
+                small
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
+          <span className="text-xs text-slate-500 block">Response Settings</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <DetailItem
+              label="Response Codes"
+              value={wafSpec.allow_all_response_codes !== undefined ? 'Allow All' : (wafSpec.allowed_response_codes?.response_code?.length ? `${wafSpec.allowed_response_codes.response_code.length} codes` : 'Default')}
+              small
+            />
+            <DetailItem
+              label="Anonymization"
+              value={wafSpec.default_anonymization !== undefined ? 'Default' : (wafSpec.custom_anonymization ? 'Custom' : 'None')}
+              small
+            />
+            <DetailItem
+              label="Blocking Page"
+              value={wafSpec.use_default_blocking_page !== undefined ? 'Default' : ((wafSpec.blocking_page?.blocking_page || wafSpec.blocking_page?.blocking_page_body) ? 'Custom' : 'Default')}
+              small
+            />
+            {wafSpec.blocking_page?.response_code && (
+              <DetailItem
+                label="Blocking Code"
+                value={wafSpec.blocking_page.response_code}
+                small
+              />
+            )}
+          </div>
+          {wafSpec.allowed_response_codes?.response_code && wafSpec.allowed_response_codes.response_code.length > 0 && (
+            <div className="pt-3 border-t border-slate-700/50">
+              <span className="text-xs text-slate-500 block mb-2">Allowed Response Codes</span>
+              <div className="flex flex-wrap gap-1.5">
+                {wafSpec.allowed_response_codes.response_code.map((code: number, idx: number) => (
+                  <span key={idx} className={`px-2 py-1 rounded text-xs font-mono ${
+                    code >= 200 && code < 300 ? 'bg-emerald-500/10 text-emerald-400' :
+                    code >= 300 && code < 400 ? 'bg-blue-500/10 text-blue-400' :
+                    code >= 400 && code < 500 ? 'bg-amber-500/10 text-amber-400' :
+                    code >= 500 ? 'bg-red-500/10 text-red-400' : 'bg-slate-700 text-slate-400'
+                  }`}>
+                    {code}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {wafSpec.http_protocol_settings && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {wafSpec.http_protocol_settings.max_url_length !== undefined && (
+                <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
+              )}
+              {wafSpec.http_protocol_settings.max_query_string_length && (
+                <DetailItem label="Max Query String" value={`${wafSpec.http_protocol_settings.max_query_string_length}`} small />
+              )}
+              {wafSpec.http_protocol_settings.max_request_body_size && (
+                <DetailItem label="Max Body Size" value={`${wafSpec.http_protocol_settings.max_request_body_size}`} small />
+              )}
+              {wafSpec.http_protocol_settings.max_headers && (
+                <DetailItem label="Max Headers" value={`${wafSpec.http_protocol_settings.max_headers}`} small />
+              )}
+              <DetailItem
+                label="Unknown Content Types"
+                value={wafSpec.http_protocol_settings.allow_unknown_content_types ? 'Allowed' : 'Blocked'}
+                enabled={wafSpec.http_protocol_settings.allow_unknown_content_types}
+                small
+              />
+            </div>
+          </div>
+        )}
+
+        {wafSpec.data_leak_prevention_setting && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">Data Leak Prevention</span>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <DetailItem
+                label="Credit Card Numbers"
+                value={wafSpec.data_leak_prevention_setting.credit_card_numbers || 'Not configured'}
+                small
+              />
+              <DetailItem
+                label="US SSN"
+                value={wafSpec.data_leak_prevention_setting.us_social_security_numbers || 'Not configured'}
+                small
+              />
+              {wafSpec.data_leak_prevention_setting.custom_patterns && wafSpec.data_leak_prevention_setting.custom_patterns.length > 0 && (
+                <DetailItem
+                  label="Custom Patterns"
+                  value={`${wafSpec.data_leak_prevention_setting.custom_patterns.length} pattern(s)`}
+                  small
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {wafSpec.file_upload_restriction_setting && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">File Upload Restrictions</span>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <DetailItem
+                label="File Upload"
+                value={wafSpec.file_upload_restriction_setting.disable_file_upload ? 'Disabled' : 'Enabled'}
+                enabled={!wafSpec.file_upload_restriction_setting.disable_file_upload}
+                small
+              />
+              {wafSpec.file_upload_restriction_setting.max_file_size && (
+                <DetailItem label="Max File Size" value={`${wafSpec.file_upload_restriction_setting.max_file_size} bytes`} small />
+              )}
+              {wafSpec.file_upload_restriction_setting.allowed_file_types && wafSpec.file_upload_restriction_setting.allowed_file_types.length > 0 && (
+                <DetailItem label="Allowed Types" value={wafSpec.file_upload_restriction_setting.allowed_file_types.length.toString()} small />
+              )}
+            </div>
+          </div>
+        )}
+
+        {wafSpec.cookie_protection_setting && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">Cookie Protection</span>
+            <div className="grid grid-cols-3 gap-3">
+              <DetailItem
+                label="Secure Attribute"
+                value={wafSpec.cookie_protection_setting.add_secure_attribute ? 'Added' : 'Not Added'}
+                enabled={wafSpec.cookie_protection_setting.add_secure_attribute}
+                small
+              />
+              <DetailItem
+                label="SameSite"
+                value={wafSpec.cookie_protection_setting.add_samesite_attribute || 'Not Set'}
+                small
+              />
+              <DetailItem
+                label="HttpOnly"
+                value={wafSpec.cookie_protection_setting.add_httponly_attribute ? 'Added' : 'Not Added'}
+                enabled={wafSpec.cookie_protection_setting.add_httponly_attribute}
+                small
+              />
+            </div>
+          </div>
+        )}
+
+        {wafSpec.graphql_settings?.enabled && (
+          <div className="p-4 bg-slate-800/50 rounded-lg">
+            <span className="text-xs text-slate-500 block mb-3">GraphQL Settings</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <DetailItem label="Status" value="Enabled" enabled small />
+              {wafSpec.graphql_settings.max_depth && (
+                <DetailItem label="Max Depth" value={`${wafSpec.graphql_settings.max_depth}`} small />
+              )}
+              {wafSpec.graphql_settings.max_batched_queries && (
+                <DetailItem label="Max Batched" value={`${wafSpec.graphql_settings.max_batched_queries}`} small />
+              )}
+              {wafSpec.graphql_settings.max_total_length && (
+                <DetailItem label="Max Length" value={`${wafSpec.graphql_settings.max_total_length}`} small />
+              )}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setJsonModal({ title: 'WAF Policy Configuration', data: waf })}
+          className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+        >
+          <Code className="w-4 h-4" /> View WAF Policy JSON
+        </button>
+      </div>
+    );
+  };
 
     return (
       <div className="space-y-6">
@@ -1768,7 +2112,7 @@ export function ConfigVisualizer() {
           )}
         </section>
 
-        {/* 8. Security (WAF) */}
+       {/* 8. Security (WAF) */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
           <button
             onClick={() => toggleSection('security')}
@@ -1812,352 +2156,8 @@ export function ConfigVisualizer() {
                         value={state.wafPolicies.get(spec.app_firewall.name)?.shared ? 'Yes' : 'No'}
                       />
                     </div>
-
-                    {(() => {
-                      const waf = state.wafPolicies.get(spec.app_firewall.name);
-                      const wafSpec = waf?.spec;
-                      if (!wafSpec) return null;
-
-                      const formatRiskAction = (action?: string) => {
-                        if (!action) return 'Default';
-                        if (action === 'AI_BLOCK') return 'Block';
-                        if (action === 'AI_REPORT') return 'Report';
-                        return action.replace('AI_', '');
-                      };
-
-                      return (
-                        <div className="space-y-4">
-                          {wafSpec.ai_risk_based_blocking && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
-                                <Zap className="w-3.5 h-3.5" /> Security Policy: AI Risk-Based Blocking
-                              </span>
-                              <div className="grid grid-cols-3 gap-3">
-                                <DetailItem
-                                  label="High Risk"
-                                  value={formatRiskAction(wafSpec.ai_risk_based_blocking.high_risk_action)}
-                                  enabled={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_BLOCK'}
-                                  warning={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_REPORT'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Medium Risk"
-                                  value={formatRiskAction(wafSpec.ai_risk_based_blocking.medium_risk_action)}
-                                  enabled={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_BLOCK'}
-                                  warning={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_REPORT'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Low Risk"
-                                  value={formatRiskAction(wafSpec.ai_risk_based_blocking.low_risk_action)}
-                                  enabled={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_BLOCK'}
-                                  warning={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_REPORT'}
-                                  small
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          {wafSpec.detection_settings && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
-                              <span className="text-xs text-slate-500 block">Detection Settings</span>
-                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                                <DetailItem
-                                  label="Threat Campaigns"
-                                  value={wafSpec.detection_settings.disable_threat_campaigns !== undefined ? 'Disabled' : 'Enabled'}
-                                  enabled={wafSpec.detection_settings.disable_threat_campaigns === undefined}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Suppression"
-                                  value={wafSpec.detection_settings.disable_suppression !== undefined ? 'Disabled' : 'Enabled'}
-                                  enabled={wafSpec.detection_settings.disable_suppression === undefined}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Signature Accuracy"
-                                  value={
-                                    wafSpec.detection_settings.signature_selection_setting?.high_medium_low_accuracy_signatures !== undefined ? 'High/Med/Low' :
-                                    wafSpec.detection_settings.signature_selection_setting?.only_high_accuracy_signatures !== undefined ? 'High Only' : 'High/Med'
-                                  }
-                                  small
-                                />
-                                <DetailItem
-                                  label="Signature Staging"
-                                  value={
-                                    wafSpec.detection_settings.stage_new_signatures?.staging_period
-                                      ? `${wafSpec.detection_settings.stage_new_signatures.staging_period} days`
-                                      : 'Disabled'
-                                  }
-                                  enabled={!!wafSpec.detection_settings.stage_new_signatures?.staging_period}
-                                  small
-                                />
-                                {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
-                                  <DetailItem
-                                    label="Disabled Attack Types"
-                                    value={wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length.toString()}
-                                    warning
-                                    small
-                                  />
-                                )}
-                                {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
-                                  <DetailItem
-                                    label="Disabled Violations"
-                                    value={wafSpec.detection_settings.violation_settings.disabled_violation_types.length.toString()}
-                                    warning
-                                    small
-                                  />
-                                )}
-                              </div>
-
-                              {wafSpec.detection_settings.signature_selection_setting?.attack_type_settings?.disabled_attack_types && wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.length > 0 && (
-                                <div className="pt-3 border-t border-slate-700/50">
-                                  <span className="text-xs text-slate-500 block mb-2">Disabled Attack Types</span>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {wafSpec.detection_settings.signature_selection_setting.attack_type_settings.disabled_attack_types.map((at: string, idx: number) => (
-                                      <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
-                                        {at.replace('ATTACK_TYPE_', '').replace(/_/g, ' ')}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {wafSpec.detection_settings.violation_settings?.disabled_violation_types && wafSpec.detection_settings.violation_settings.disabled_violation_types.length > 0 && (
-                                <div className="pt-3 border-t border-slate-700/50">
-                                  <span className="text-xs text-slate-500 block mb-2">Disabled Violation Types</span>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {wafSpec.detection_settings.violation_settings.disabled_violation_types.map((vt: string, idx: number) => (
-                                      <span key={idx} className="px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-xs">
-                                        {vt.replace('VIOL_', '').replace(/_/g, ' ')}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {wafSpec.detection_settings.bot_protection_setting && (
-                                <div className="pt-3 border-t border-slate-700/50">
-                                  <span className="text-xs text-slate-500 block mb-2">Bot Protection Settings</span>
-                                  <div className="grid grid-cols-3 gap-3">
-                                    <DetailItem
-                                      label="Malicious Bots"
-                                      value={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action || 'Default'}
-                                      enabled={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'BLOCK'}
-                                      warning={wafSpec.detection_settings.bot_protection_setting.malicious_bot_action === 'IGNORE'}
-                                      small
-                                    />
-                                    <DetailItem
-                                      label="Suspicious Bots"
-                                      value={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action || 'Default'}
-                                      enabled={wafSpec.detection_settings.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
-                                      small
-                                    />
-                                    <DetailItem
-                                      label="Good Bots"
-                                      value={wafSpec.detection_settings.bot_protection_setting.good_bot_action || 'Default'}
-                                      small
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {wafSpec.bot_protection_setting && !wafSpec.detection_settings?.bot_protection_setting && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">Bot Protection Settings</span>
-                              <div className="grid grid-cols-3 gap-3">
-                                <DetailItem
-                                  label="Malicious Bots"
-                                  value={wafSpec.bot_protection_setting.malicious_bot_action || 'Default'}
-                                  enabled={wafSpec.bot_protection_setting.malicious_bot_action === 'BLOCK'}
-                                  warning={wafSpec.bot_protection_setting.malicious_bot_action === 'IGNORE'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Suspicious Bots"
-                                  value={wafSpec.bot_protection_setting.suspicious_bot_action || 'Default'}
-                                  enabled={wafSpec.bot_protection_setting.suspicious_bot_action === 'BLOCK'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="Good Bots"
-                                  value={wafSpec.bot_protection_setting.good_bot_action || 'Default'}
-                                  small
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="p-4 bg-slate-800/50 rounded-lg space-y-4">
-                            <span className="text-xs text-slate-500 block">Response Settings</span>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                              <DetailItem
-                                label="Response Codes"
-                                value={wafSpec.allow_all_response_codes !== undefined ? 'Allow All' : (wafSpec.allowed_response_codes?.response_code?.length ? `${wafSpec.allowed_response_codes.response_code.length} codes` : 'Default')}
-                                small
-                              />
-                              <DetailItem
-                                label="Anonymization"
-                                value={wafSpec.default_anonymization !== undefined ? 'Default' : (wafSpec.custom_anonymization ? 'Custom' : 'None')}
-                                small
-                              />
-                              <DetailItem
-                                label="Blocking Page"
-                                value={wafSpec.use_default_blocking_page !== undefined ? 'Default' : ((wafSpec.blocking_page?.blocking_page || wafSpec.blocking_page?.blocking_page_body) ? 'Custom' : 'Default')}
-                                small
-                              />
-                              {wafSpec.blocking_page?.response_code && (
-                                <DetailItem
-                                  label="Blocking Code"
-                                  value={wafSpec.blocking_page.response_code}
-                                  small
-                                />
-                              )}
-                            </div>
-                            {wafSpec.allowed_response_codes?.response_code && wafSpec.allowed_response_codes.response_code.length > 0 && (
-                              <div className="pt-3 border-t border-slate-700/50">
-                                <span className="text-xs text-slate-500 block mb-2">Allowed Response Codes</span>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {wafSpec.allowed_response_codes.response_code.map((code: number, idx: number) => (
-                                    <span key={idx} className={`px-2 py-1 rounded text-xs font-mono ${
-                                      code >= 200 && code < 300 ? 'bg-emerald-500/10 text-emerald-400' :
-                                      code >= 300 && code < 400 ? 'bg-blue-500/10 text-blue-400' :
-                                      code >= 400 && code < 500 ? 'bg-amber-500/10 text-amber-400' :
-                                      code >= 500 ? 'bg-red-500/10 text-red-400' : 'bg-slate-700 text-slate-400'
-                                    }`}>
-                                      {code}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {wafSpec.http_protocol_settings && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {wafSpec.http_protocol_settings.max_url_length !== undefined && (
-                                  <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
-                                )}
-                                {wafSpec.http_protocol_settings.max_query_string_length && (
-                                  <DetailItem label="Max Query String" value={`${wafSpec.http_protocol_settings.max_query_string_length}`} small />
-                                )}
-                                {wafSpec.http_protocol_settings.max_request_body_size && (
-                                  <DetailItem label="Max Body Size" value={`${wafSpec.http_protocol_settings.max_request_body_size}`} small />
-                                )}
-                                {wafSpec.http_protocol_settings.max_headers && (
-                                  <DetailItem label="Max Headers" value={`${wafSpec.http_protocol_settings.max_headers}`} small />
-                                )}
-                                <DetailItem
-                                  label="Unknown Content Types"
-                                  value={wafSpec.http_protocol_settings.allow_unknown_content_types ? 'Allowed' : 'Blocked'}
-                                  enabled={wafSpec.http_protocol_settings.allow_unknown_content_types}
-                                  small
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          {wafSpec.data_leak_prevention_setting && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">Data Leak Prevention</span>
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <DetailItem
-                                  label="Credit Card Numbers"
-                                  value={wafSpec.data_leak_prevention_setting.credit_card_numbers || 'Not configured'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="US SSN"
-                                  value={wafSpec.data_leak_prevention_setting.us_social_security_numbers || 'Not configured'}
-                                  small
-                                />
-                                {wafSpec.data_leak_prevention_setting.custom_patterns && wafSpec.data_leak_prevention_setting.custom_patterns.length > 0 && (
-                                  <DetailItem
-                                    label="Custom Patterns"
-                                    value={`${wafSpec.data_leak_prevention_setting.custom_patterns.length} pattern(s)`}
-                                    small
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {wafSpec.file_upload_restriction_setting && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">File Upload Restrictions</span>
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <DetailItem
-                                  label="File Upload"
-                                  value={wafSpec.file_upload_restriction_setting.disable_file_upload ? 'Disabled' : 'Enabled'}
-                                  enabled={!wafSpec.file_upload_restriction_setting.disable_file_upload}
-                                  small
-                                />
-                                {wafSpec.file_upload_restriction_setting.max_file_size && (
-                                  <DetailItem label="Max File Size" value={`${wafSpec.file_upload_restriction_setting.max_file_size} bytes`} small />
-                                )}
-                                {wafSpec.file_upload_restriction_setting.allowed_file_types && wafSpec.file_upload_restriction_setting.allowed_file_types.length > 0 && (
-                                  <DetailItem label="Allowed Types" value={wafSpec.file_upload_restriction_setting.allowed_file_types.length.toString()} small />
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {wafSpec.cookie_protection_setting && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">Cookie Protection</span>
-                              <div className="grid grid-cols-3 gap-3">
-                                <DetailItem
-                                  label="Secure Attribute"
-                                  value={wafSpec.cookie_protection_setting.add_secure_attribute ? 'Added' : 'Not Added'}
-                                  enabled={wafSpec.cookie_protection_setting.add_secure_attribute}
-                                  small
-                                />
-                                <DetailItem
-                                  label="SameSite"
-                                  value={wafSpec.cookie_protection_setting.add_samesite_attribute || 'Not Set'}
-                                  small
-                                />
-                                <DetailItem
-                                  label="HttpOnly"
-                                  value={wafSpec.cookie_protection_setting.add_httponly_attribute ? 'Added' : 'Not Added'}
-                                  enabled={wafSpec.cookie_protection_setting.add_httponly_attribute}
-                                  small
-                                />
-                              </div>
-                            </div>
-                          )}
-
-                          {wafSpec.graphql_settings?.enabled && (
-                            <div className="p-4 bg-slate-800/50 rounded-lg">
-                              <span className="text-xs text-slate-500 block mb-3">GraphQL Settings</span>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <DetailItem label="Status" value="Enabled" enabled small />
-                                {wafSpec.graphql_settings.max_depth && (
-                                  <DetailItem label="Max Depth" value={`${wafSpec.graphql_settings.max_depth}`} small />
-                                )}
-                                {wafSpec.graphql_settings.max_batched_queries && (
-                                  <DetailItem label="Max Batched" value={`${wafSpec.graphql_settings.max_batched_queries}`} small />
-                                )}
-                                {wafSpec.graphql_settings.max_total_length && (
-                                  <DetailItem label="Max Length" value={`${wafSpec.graphql_settings.max_total_length}`} small />
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          <button
-                            onClick={() => setJsonModal({ title: 'WAF Policy Configuration', data: waf })}
-                            className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
-                          >
-                            <Code className="w-4 h-4" /> View WAF Policy JSON
-                          </button>
-                        </div>
-                      );
-                    })()}
+                    {/* Render Main WAF Details */}
+                    {renderWafConfiguration(state.wafPolicies.get(spec.app_firewall.name))}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-slate-500">
@@ -2181,13 +2181,6 @@ export function ConfigVisualizer() {
                     {Array.from(state.wafPolicies.entries())
                       .filter(([name]) => name !== spec?.app_firewall?.name)
                       .map(([name, waf]) => {
-                        const wafSpec = waf.spec;
-                        const formatRiskAction = (action?: string) => {
-                          if (!action) return 'Default';
-                          if (action === 'AI_BLOCK') return 'Block';
-                          if (action === 'AI_REPORT') return 'Report';
-                          return action.replace('AI_', '');
-                        };
                         return (
                           <div key={name} className="p-5 bg-slate-800/40 rounded-lg border border-slate-700/30">
                             <div className="flex items-center justify-between mb-4">
@@ -2223,42 +2216,8 @@ export function ConfigVisualizer() {
                               <DetailItem label="Shared" value={waf.shared ? 'Yes' : 'No'} />
                             </div>
 
-                            <div className="space-y-4">
-                              {wafSpec?.ai_risk_based_blocking && (
-                                <div className="p-4 bg-slate-800/50 rounded-lg">
-                                  <span className="text-xs text-slate-500 block mb-3 flex items-center gap-2">
-                                    <Zap className="w-3.5 h-3.5" /> Security Policy: AI Risk-Based Blocking
-                                  </span>
-                                  <div className="grid grid-cols-3 gap-3">
-                                    <DetailItem
-                                      label="High Risk"
-                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.high_risk_action)}
-                                      enabled={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_BLOCK'}
-                                      warning={wafSpec.ai_risk_based_blocking.high_risk_action === 'AI_REPORT'}
-                                      small
-                                    />
-                                    <DetailItem
-                                      label="Medium Risk"
-                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.medium_risk_action)}
-                                      enabled={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_BLOCK'}
-                                      warning={wafSpec.ai_risk_based_blocking.medium_risk_action === 'AI_REPORT'}
-                                      small
-                                    />
-                                    <DetailItem
-                                      label="Low Risk"
-                                      value={formatRiskAction(wafSpec.ai_risk_based_blocking.low_risk_action)}
-                                      enabled={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_BLOCK'}
-                                      warning={wafSpec.ai_risk_based_blocking.low_risk_action === 'AI_REPORT'}
-                                      small
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                              
-                              <div className="p-2 text-xs text-slate-500 italic">
-                                Detailed configuration available in JSON view.
-                              </div>
-                            </div>
+                            {/* Render Route WAF Details */}
+                            {renderWafConfiguration(waf)}
                           </div>
                         );
                       })}
