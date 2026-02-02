@@ -279,7 +279,9 @@ export function ConfigVisualizer() {
       'security', 
       'tls', 
       'caching', 
-      'apptype'
+      'apptype',
+      'advanced',
+      'features'
     ]));
     
     // Reset state
