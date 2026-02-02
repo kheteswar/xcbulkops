@@ -602,21 +602,6 @@ export function ConfigVisualizer() {
   };
 
 
-  // Helper for HTTP method colors (required for the Routes section)
-  const getMethodColor = (method: string) => {
-    const colors: Record<string, string> = {
-      GET: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-      POST: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-      PUT: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-      DELETE: 'bg-red-500/15 text-red-400 border-red-500/30',
-      PATCH: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
-      HEAD: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
-      OPTIONS: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
-      ANY: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30',
-    };
-    return colors[method] || 'bg-slate-500/15 text-slate-400';
-  };
-
   const renderHTTPLBContent = () => {
     const lb = state.rootLB!;
     const spec = lb.spec as any;
