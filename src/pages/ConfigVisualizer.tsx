@@ -3025,6 +3025,66 @@ const renderHTTPLBContent = () => {
                                     </div>
                                 ) : <span className="text-sm text-slate-500">Not configured</span>}
                             </div>
+                          
+                          {/* Route-Level WAF Policies (The Missing Block) */}
+              {state.wafPolicies.size > 1 && (
+                <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Shield className="w-6 h-6 text-cyan-400" />
+                    <h3 className="text-lg font-semibold text-slate-200">Route-Level WAF Policies</h3>
+                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                      {state.wafPolicies.size - (spec?.app_firewall ? 1 : 0)} additional
+                    </span>
+                  </div>
+                  <div className="space-y-4">
+                    {Array.from(state.wafPolicies.entries())
+                      .filter(([name]) => name !== spec?.app_firewall?.name)
+                      .map(([name, waf]) => {
+                        const wafSpec = waf.spec;
+                        return (
+                          <div key={name} className="p-5 bg-slate-800/40 rounded-lg border border-slate-700/30">
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                <Shield className="w-5 h-5 text-cyan-400" />
+                                <span className="text-slate-200 font-semibold text-lg">{name}</span>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  getWafMode(waf) === 'Blocking' ? 'bg-emerald-500/15 text-emerald-400' :
+                                  getWafMode(waf) === 'Monitoring' ? 'bg-amber-500/15 text-amber-400' :
+                                  getWafMode(waf) === 'AI Risk-Based' ? 'bg-blue-500/15 text-blue-400' :
+                                  'bg-slate-700 text-slate-400'
+                                }`}>
+                                  {getWafMode(waf)}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => setJsonModal({ title: `${name} WAF Policy`, data: waf })}
+                                className="p-2 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                              >
+                                <Code className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                              <DetailItem label="Policy Name" value={name} />
+                              <DetailItem label="Namespace" value={waf.metadata?.namespace || 'N/A'} />
+                              <DetailItem
+                                label="Mode"
+                                value={getWafMode(waf)}
+                                enabled={getWafMode(waf) === 'Blocking'}
+                                warning={getWafMode(waf) === 'Monitoring'}
+                              />
+                              <DetailItem label="Shared" value={waf.shared ? 'Yes' : 'No'} />
+                            </div>
+
+                            <div className="p-2 text-xs text-slate-500 italic bg-slate-900/30 rounded border border-slate-700/30">
+                               Full configuration for this route-level policy is available via the JSON view.
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
 
                             {/* User ID Card */}
                             <div className={`p-4 rounded-lg border ${spec.user_identification ? 'bg-cyan-500/5 border-cyan-500/20' : 'bg-slate-700/30 border-slate-700/50'}`}>
