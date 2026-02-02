@@ -694,7 +694,7 @@ export interface ServicePolicy {
   metadata?: { name: string; namespace: string };
   spec?: {
     algo?: string;
-    any_server?: boolean;
+    any_server?: boolean | object;
     server_selector?: {
       expressions?: string[];
     };
@@ -712,8 +712,29 @@ export interface ServicePolicy {
     allow_list?: {
       rules?: ServicePolicyRule[];
     };
+    rules?: ServicePolicyRule[];
+    simple_rules?: SimpleRule[];
     legacy_rule_list?: unknown;
+    internally_generated?: unknown;
   };
+}
+
+export interface SimpleRule {
+  name?: string;
+  action?: string;
+  description?: string;
+  http_method?: { methods?: string[] } | null;
+  path?: { prefix?: string; regex?: string } | null;
+  headers?: unknown[];
+  waf_action?: { none?: unknown; waf_skip_processing?: boolean; waf_in_monitoring_mode?: boolean };
+  ip_prefix_list?: { prefixes?: string[]; invert_match?: boolean } | null;
+  asn_list?: { as_numbers?: number[] } | null;
+  challenge_action?: string;
+  domain_matcher?: unknown;
+  scheme?: string[];
+  query_params?: unknown[];
+  arg_matchers?: unknown[];
+  cookie_matchers?: unknown[];
 }
 
 export interface ServicePolicyRule {
