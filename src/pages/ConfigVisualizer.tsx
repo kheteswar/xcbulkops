@@ -611,7 +611,6 @@ export function ConfigVisualizer() {
     const poolCount = state.originPools.size;
     const wafEnabled = spec.app_firewall && !spec.disable_waf;
     const botEnabled = !spec.disable_bot_defense;
-    const ipRepEnabled = !spec.disable_ip_reputation;
     
     // Determine advertise type
     const advertiseType = spec.advertise_on_public_default_vip
@@ -659,15 +658,17 @@ export function ConfigVisualizer() {
           </div>
         </div>
 
-        {/* 2. Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {/* 2. Stats Grid (Restored full details) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
           {[
             { label: 'Domains', value: spec.domains?.length || 0, icon: Globe, color: 'text-blue-400' },
             { label: 'Routes', value: routeCount, icon: Route, color: 'text-cyan-400' },
             { label: 'Pools', value: poolCount, icon: Server, color: 'text-emerald-400' },
-            { label: 'WAF', value: wafEnabled ? 'Enabled' : 'Disabled', icon: Shield, color: wafEnabled ? 'text-emerald-400' : 'text-slate-500' },
-            { label: 'Bot Defense', value: botEnabled ? 'Enabled' : 'Disabled', icon: Bot, color: botEnabled ? 'text-purple-400' : 'text-slate-500' },
-            { label: 'IP Reputation', value: ipRepEnabled ? 'Enabled' : 'Disabled', icon: ShieldAlert, color: ipRepEnabled ? 'text-rose-400' : 'text-slate-500' },
+            { label: 'Health Checks', value: state.healthChecks.size, icon: Activity, color: 'text-rose-400' },
+            { label: 'WAF Policies', value: state.wafPolicies.size, icon: Shield, color: 'text-amber-400' },
+            { label: 'Service Policies', value: state.servicePolicies.size, icon: FileText, color: 'text-teal-400' },
+            { label: 'WAF Exclusions', value: spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length || 0, icon: ShieldOff, color: (spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length) ? 'text-amber-400' : 'text-slate-500' },
+            { label: 'Trusted Clients', value: spec?.trusted_clients?.length || 0, icon: User, color: spec?.trusted_clients?.length ? 'text-emerald-400' : 'text-slate-500' },
           ].map(stat => (
             <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
               <div className={`w-7 h-7 mb-1.5 ${stat.color}`}><stat.icon className="w-full h-full" /></div>
@@ -677,7 +678,7 @@ export function ConfigVisualizer() {
           ))}
         </div>
 
-        {/* 3. Domains & DNS Info (Updated) */}
+        {/* 3. Domains & DNS Info */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
             <Globe className="w-5 h-5 text-blue-400" />
@@ -694,13 +695,13 @@ export function ConfigVisualizer() {
                 </div>
                 
                 {/* VIP and CNAME Details */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 mt-2 border-t border-slate-700/50">
-                    <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50 flex flex-col justify-center">
-                         <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Network className="w-3 h-3" /> CNAME Record</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-700/50">
+                    <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50">
+                         <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Network className="w-3 h-3"/> CNAME Record</span>
                          <code className="text-cyan-400 text-sm break-all select-all">{spec.host_name || 'N/A'}</code>
                     </div>
-                    <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50 flex flex-col justify-center">
-                         <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Globe className="w-3 h-3" /> DNS VIP (IP)</span>
+                    <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50">
+                         <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Globe className="w-3 h-3"/> DNS VIP (IP)</span>
                          <code className="text-emerald-400 text-sm select-all">{spec.dns_info?.[0]?.ip_address || 'Pending'}</code>
                     </div>
                 </div>
@@ -714,7 +715,7 @@ export function ConfigVisualizer() {
             </div>
         </section>
 
-        {/* 4. TLS & Certificates (Updated) */}
+        {/* 4. TLS & Certificates */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
              <button onClick={() => toggleSection('tls')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                  <div className="flex items-center gap-3">
@@ -779,7 +780,7 @@ export function ConfigVisualizer() {
              )}
         </section>
 
-        {/* 5. Access Control (Updated with Actions) */}
+        {/* 5. Access Control */}
         {(spec.trusted_clients?.length > 0 || spec.blocked_clients?.length > 0) && (
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
@@ -838,7 +839,7 @@ export function ConfigVisualizer() {
             </section>
         )}
 
-        {/* 6. Routes Configuration (Existing logic, simplified wrapper) */}
+        {/* 6. Routes Configuration */}
         <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
             <button onClick={() => toggleSection('routes')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                 <div className="flex items-center gap-3">
