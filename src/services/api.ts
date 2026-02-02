@@ -107,6 +107,33 @@ class F5XCApiClient {
   async getUserIdentificationPolicy(namespace: string, name: string): Promise<UserIdentificationPolicy> {
     return this.get(`/api/config/namespaces/${namespace}/user_identifications/${name}`);
   }
+
+  async getServicePolicy(namespace: string, policyName: string): Promise<unknown> {
+  const primaryPath =
+    `/api/config/namespaces/${namespace}/service_policys/${policyName}`;
+
+  try {
+    return await this.get(primaryPath);
+  } catch (err: any) {
+    const isSharedNamespace = namespace === 'shared';
+    const isAllowAllPolicy = policyName === 'ves-io-allow-all';
+
+    const msg = err?.message ? String(err.message) : '';
+    const looksLike404 =
+      msg.includes('404') ||
+      msg.toLowerCase().includes('does not exist') ||
+      msg.toLowerCase().includes('not exist');
+
+    if (isSharedNamespace && isAllowAllPolicy && looksLike404) {
+      return this.get(
+        `/api/config/namespaces/ves-io-shared/service_policys/${policyName}`
+      );
+    }
+
+    throw err;
+  }
+}
+
 }
 
 export const apiClient = new F5XCApiClient();
