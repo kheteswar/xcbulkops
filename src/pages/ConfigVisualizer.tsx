@@ -1395,16 +1395,16 @@ export function ConfigVisualizer() {
                     />
                     <DetailItem
                       label="Min TLS Version"
-                      value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.min_version || 'TLS 1.0'}
+                      value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config || spec?.https?.tls_cert_params?.tls_config)?.min_version || 'TLS 1.0'}
                     />
                     <DetailItem
                       label="Max TLS Version"
-                      value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.max_version || 'TLS 1.3'}
+                      value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config || spec?.https?.tls_cert_params?.tls_config)?.max_version || 'TLS 1.3'}
                     />
                     <DetailItem
                       label="mTLS"
-                      value={(spec?.https_auto_cert || spec?.https)?.mtls ? 'Enabled' : 'Disabled'}
-                      enabled={(spec?.https_auto_cert || spec?.https)?.mtls}
+                      value={(spec?.https_auto_cert || spec?.https?.tls_cert_params || spec?.https)?.mtls ? 'Enabled' : 'Disabled'}
+                      enabled={!!((spec?.https_auto_cert || spec?.https?.tls_cert_params || spec?.https)?.mtls)}
                     />
                     <DetailItem
                       label="HTTP Redirect"
@@ -1418,11 +1418,71 @@ export function ConfigVisualizer() {
                     />
                   </div>
 
+                  {/* AUTO CERT DETAILS (New Feature) */}
+                  {spec?.auto_cert_info && (
+                    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                        <h3 className="text-lg font-semibold text-slate-200">Auto Certificate Details</h3>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          spec.auto_cert_info.auto_cert_state === 'CertificateValid' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+                        }`}>
+                          {spec.auto_cert_info.auto_cert_state}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                        <DetailItem 
+                          label="Expiration" 
+                          value={spec.auto_cert_info.auto_cert_expiry ? formatDate(spec.auto_cert_info.auto_cert_expiry) : 'N/A'} 
+                          enabled={spec.auto_cert_info.auto_cert_expiry && new Date(spec.auto_cert_info.auto_cert_expiry) > new Date()}
+                        />
+                        <div className="col-span-2">
+                          <span className="text-xs text-slate-500 block mb-1">Subject</span>
+                          <span className="text-sm text-slate-300 font-mono break-all">{spec.auto_cert_info.auto_cert_subject || 'Pending...'}</span>
+                        </div>
+                        <div className="col-span-2">
+                           <span className="text-xs text-slate-500 block mb-1">Issuer</span>
+                           <span className="text-sm text-slate-300 font-mono break-all">{spec.auto_cert_info.auto_cert_issuer || 'Pending...'}</span>
+                        </div>
+                      </div>
+
+                      {/* ACME Challenge Records */}
+                      {spec.auto_cert_info.dns_records && spec.auto_cert_info.dns_records.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-600/30">
+                          <span className="text-xs text-slate-500 block mb-3 font-medium">ACME DNS Challenge Records</span>
+                          <div className="space-y-2">
+                            {spec.auto_cert_info.dns_records.map((rec: any, idx: number) => (
+                              <div key={idx} className="bg-slate-900/50 p-3 rounded border border-slate-700/50 flex flex-col md:flex-row gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-xs text-slate-500 block">Name</span>
+                                  <code className="text-xs text-cyan-400 break-all">{rec.name}</code>
+                                </div>
+                                <div className="flex-shrink-0">
+                                  <span className="text-xs text-slate-500 block">Type</span>
+                                  <code className="text-xs text-slate-300">{rec.type}</code>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-xs text-slate-500 block">Value</span>
+                                  <code className="text-xs text-emerald-400 break-all">{rec.value}</code>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* CUSTOM CERTIFICATES DETAILS */}
                   {(() => {
                     const tlsConfig = spec?.https_auto_cert || spec?.https;
-                    const certificates = tlsConfig?.tls_certificates || tlsConfig?.tls_config?.tls_certificates;
+                    // Updated logic: Check tls_cert_params as well
+                    const certs = tlsConfig?.tls_certificates || 
+                                  tlsConfig?.tls_config?.tls_certificates ||
+                                  tlsConfig?.tls_cert_params?.certificates;
 
-                    if (!certificates?.length) return null;
+                    if (!certs?.length) return null;
 
                     return (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
@@ -1430,18 +1490,23 @@ export function ConfigVisualizer() {
                           <Lock className="w-6 h-6 text-amber-400" />
                           <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
                           <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                            {certificates.length} certificate{certificates.length !== 1 ? 's' : ''}
+                            {certs.length} certificate{certs.length !== 1 ? 's' : ''}
                           </span>
                         </div>
                         <div className="space-y-4">
-                          {certificates.map((cert: any, i: number) => {
+                          {certs.map((cert: any, i: number) => {
                             const certInfo = cert.certificate_url ? formatCertificateUrl(cert.certificate_url) : null;
                             return (
                               <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
                                 <div className="flex items-center justify-between mb-3">
                                   <div className="flex items-center gap-2">
                                     <Lock className="w-4 h-4 text-amber-400" />
-                                    <span className="text-slate-200 font-medium">Certificate {i + 1}</span>
+                                    <span className="text-slate-200 font-medium">
+                                      {cert.name || `Certificate ${i + 1}`}
+                                    </span>
+                                    {cert.kind && (
+                                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">{cert.kind}</span>
+                                    )}
                                     {certInfo && (
                                       <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
                                         {certInfo.type}
@@ -1450,6 +1515,12 @@ export function ConfigVisualizer() {
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                  {(cert.namespace || cert.tenant) && (
+                                    <>
+                                        <DetailItem label="Namespace" value={cert.namespace || state.namespace} small />
+                                        <DetailItem label="Tenant" value={cert.tenant} small />
+                                    </>
+                                  )}
                                   {cert.description && (
                                     <DetailItem label="Description" value={cert.description} small />
                                   )}
@@ -1475,7 +1546,7 @@ export function ConfigVisualizer() {
                   })()}
 
                   {(() => {
-                    const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config;
+                    const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config || spec?.https?.tls_cert_params?.tls_config;
                     if (!tlsConfig?.cipher_suites?.length) return null;
 
                     return (
