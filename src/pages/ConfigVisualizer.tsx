@@ -2052,7 +2052,7 @@ export function ConfigVisualizer() {
                                     </div>
                                   )}
 
-                                  {wafSpec.detection_settings.bot_protection_setting && (
+                                  {wafSpec.detection_settings.bot_protection_setting !== undefined && (
                                     <div className="pt-3 border-t border-slate-700/50">
                                       <span className="text-xs text-slate-500 block mb-2">Bot Protection Settings</span>
                                       <div className="grid grid-cols-3 gap-3">
@@ -2155,7 +2155,7 @@ export function ConfigVisualizer() {
                                 <div className="p-4 bg-slate-800/50 rounded-lg">
                                   <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    {wafSpec.http_protocol_settings.max_url_length && (
+                                    {wafSpec.http_protocol_settings.max_url_length !== undefined && (
                                       <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
                                     )}
                                     {wafSpec.http_protocol_settings.max_query_string_length && (
@@ -2551,7 +2551,7 @@ export function ConfigVisualizer() {
                                     <div className="p-4 bg-slate-800/50 rounded-lg">
                                       <span className="text-xs text-slate-500 block mb-3">HTTP Protocol Settings</span>
                                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                        {wafSpec.http_protocol_settings.max_url_length && (
+                                        {wafSpec.http_protocol_settings.max_url_length !== undefined && (
                                           <DetailItem label="Max URL Length" value={`${wafSpec.http_protocol_settings.max_url_length}`} small />
                                         )}
                                         {wafSpec.http_protocol_settings.max_query_string_length && (
