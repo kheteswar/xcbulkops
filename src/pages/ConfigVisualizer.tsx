@@ -90,9 +90,9 @@ export function ConfigVisualizer() {
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [resourceList, setResourceList] = useState<Array<{ name: string }>>([]);
   const [selectedNs, setSelectedNs] = useState('');
-  const [selectedLb, setSelectedLb] = useState('');
+  const [selectedResource, setSelectedResource] = useState(''); 
   const [isLoadingNs, setIsLoadingNs] = useState(true);
-  const [isLoadingLbs, setIsLoadingLbs] = useState(false);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [scanLog, setScanLog] = useState('');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls']));
@@ -139,12 +139,12 @@ export function ConfigVisualizer() {
 
   const loadResources = async (ns: string, type: 'http' | 'cdn') => {
     setSelectedNs(ns);
-    setSelectedLb(''); // Reset selection
+    setSelectedResource(''); // Reset selection
     setResourceList([]);
     
     if (!ns) return;
 
-    setIsLoadingLbs(true); // You can keep using isLoadingLbs or rename it to isLoadingResources
+    setIsLoadingResources(true); // You can keep using isLoadingLbs or rename it to isLoadingResources
     try {
       if (type === 'http') {
         const resp = await apiClient.getLoadBalancers(ns);
@@ -156,7 +156,7 @@ export function ConfigVisualizer() {
     } catch {
       toast.error(`Failed to load ${type.toUpperCase()} resources`);
     } finally {
-      setIsLoadingLbs(false);
+      setIsLoadingResources(false);
     }
 };
 
@@ -841,8 +841,9 @@ export function ConfigVisualizer() {
           </div>
 
           <div className="flex items-center gap-3">
-
-             <select
+            
+            {/* 2. NEW: Type Selector */}
+            <select
               value={selectedType}
               onChange={e => {
                 const newType = e.target.value as 'http' | 'cdn';
@@ -851,13 +852,14 @@ export function ConfigVisualizer() {
               }}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[120px]"
             >
-              <option value="http">HTTP LBs</option>
+              <option value="http">HTTP LB</option>
               <option value="cdn">CDN</option>
             </select>
-            
+
+            {/* 1. Namespace Selector */}
             <select
               value={selectedNs}
-              onChange={e => loadResources(e.target.value, selectedType)}
+              onChange={e => loadResources(e.target.value, selectedType)} // Updated handler
               disabled={isLoadingNs}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[180px]"
             >
@@ -869,14 +871,15 @@ export function ConfigVisualizer() {
               ))}
             </select>
 
+            {/* 3. Resource Selector (Updated) */}
             <select
-              value={selectedLb}
-              onChange={e => setSelectedLb(e.target.value)}
-              disabled={!selectedNs || isLoadingLbs}
+              value={selectedResource} // Updated variable
+              onChange={e => setSelectedResource(e.target.value)} // Updated setter
+              disabled={!selectedNs || isLoadingResources}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[200px] disabled:opacity-50"
             >
               <option value="">
-                {isLoadingLbs ? 'Loading...' : `Select ${selectedType === 'http' ? 'Load Balancer' : 'Distribution'}`}
+                {isLoadingResources ? 'Loading...' : `Select ${selectedType === 'http' ? 'Load Balancer' : 'Distribution'}`}
               </option>
               {resourceList.map(r => (
                 <option key={r.name} value={r.name}>
@@ -887,13 +890,14 @@ export function ConfigVisualizer() {
 
             <button
               onClick={startViewer}
-              disabled={!selectedNs || !selectedLb || isLoading}
-              className="flex items-center gap-2 px-5 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+              disabled={!selectedNs || !selectedResource || isLoading} // Updated check
+              className={`flex items-center gap-2 px-5 py-2 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-white ${selectedType === 'http' ? 'bg-blue-500 hover:bg-blue-600' : 'bg-purple-500 hover:bg-purple-600'}`}
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
               View
             </button>
           </div>
+          
         </div>
       </div>
 
