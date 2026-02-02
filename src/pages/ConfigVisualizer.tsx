@@ -580,7 +580,8 @@ export function ConfigVisualizer() {
   const renderCDNContent = () => {
       const cdn = state.rootCDN!;
       const spec = cdn.spec as any; 
-      
+      const sysMeta = cdn.system_metadata as any;
+
       return (
         <div className="space-y-6">
             {/* 1. Header & Meta */}
@@ -596,11 +597,22 @@ export function ConfigVisualizer() {
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded ${!spec.disable ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
                         {spec.disable ? 'Disabled' : 'Active'}
                       </span>
+                      {spec.state && (
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          {spec.state}
+                        </span>
+                      )}
                     </div>
                     <h1 className="text-2xl font-bold text-slate-100">{cdn.metadata?.name}</h1>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                    <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
                       <span className="flex items-center gap-1"><Home className="w-4 h-4" /> {cdn.metadata?.namespace}</span>
-                      <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Created: {formatDate(cdn.system_metadata?.creation_timestamp)}</span>
+                      <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Created: {formatDate(sysMeta?.creation_timestamp)}</span>
+                      {sysMeta?.modification_timestamp && (
+                        <span className="flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Modified: {formatDate(sysMeta.modification_timestamp)}</span>
+                      )}
+                      {sysMeta?.creator_id && (
+                        <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Creator: {sysMeta.creator_id}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -630,35 +642,106 @@ export function ConfigVisualizer() {
                  ))}
             </div>
 
-            {/* 3. Domains */}
-            {spec?.domains && (
-              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
-                 <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
-                    <Globe className="w-5 h-5 text-blue-400" />
-                    <h2 className="text-lg font-semibold text-slate-100">Domains & Listeners</h2>
-                 </div>
-                 <div className="p-6">
-                     <div className="grid grid-cols-1 gap-2 mb-4">
-                        {spec.domains.map((d: string) => (
-                            <div key={d} className="p-3 bg-slate-700/30 rounded border border-slate-700/50 flex items-center justify-between">
-                                <code className="text-slate-200 text-lg">{d}</code>
-                                <a href={`https://${d}`} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-sm">
-                                  Open <ExternalLink className="w-3 h-3" />
-                                </a>
+            {/* 3. Service Domains (Highlighted) */}
+            {spec.service_domains && spec.service_domains.length > 0 && (
+                <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/30 rounded-xl p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                        <Globe className="w-24 h-24 text-white" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-indigo-100 mb-3 flex items-center gap-2">
+                        <Network className="w-5 h-5 text-indigo-400" /> Service Domains
+                    </h2>
+                    <div className="grid grid-cols-1 gap-3">
+                        {spec.service_domains.map((sd: any, idx: number) => (
+                            <div key={idx} className="bg-slate-900/60 rounded-lg p-4 border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div>
+                                    <span className="text-xs text-indigo-300 uppercase tracking-wider font-semibold">User Domain</span>
+                                    <div className="text-white font-mono text-lg">{sd.domain}</div>
+                                </div>
+                                <div className="hidden md:block text-indigo-500"><ArrowRight className="w-5 h-5" /></div>
+                                <div className="text-right">
+                                    <span className="text-xs text-indigo-300 uppercase tracking-wider font-semibold">Service Domain (CNAME)</span>
+                                    <div className="text-cyan-300 font-mono text-lg select-all cursor-text">{sd.service_domain}</div>
+                                </div>
                             </div>
                         ))}
-                     </div>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <DetailItem label="HTTP Port" value={spec.http?.port ? spec.http.port.toString() : 'N/A'} />
-                        <DetailItem label="HTTPS" value={spec.https_auto_cert || spec.https ? 'Enabled' : 'Disabled'} enabled={!!(spec.https || spec.https_auto_cert)} />
-                        <DetailItem label="Add Location" value={spec.add_location ? 'Enabled' : 'Disabled'} enabled={spec.add_location} />
-                        <DetailItem label="DNS Managed" value={spec.http?.dns_volterra_managed ? 'Yes' : 'No'} />
-                     </div>
-                 </div>
-              </section>
+                    </div>
+                </div>
             )}
 
-            {/* 4. Origin Configuration */}
+            {/* 4. TLS & Certificate Details */}
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                 <button onClick={() => toggleSection('tls')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                     <div className="flex items-center gap-3">
+                         <Lock className="w-5 h-5 text-amber-400" />
+                         <h2 className="text-lg font-semibold text-slate-100">TLS & Certificates</h2>
+                     </div>
+                     {expandedSections.has('tls') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                 </button>
+                 
+                 {expandedSections.has('tls') && (
+                     <div className="p-6 space-y-6">
+                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                             <DetailItem 
+                                label="HTTPS Auto Cert" 
+                                value={spec.https_auto_cert ? 'Enabled' : 'Disabled'} 
+                                enabled={!!spec.https_auto_cert} 
+                             />
+                             <DetailItem 
+                                label="HSTS Header" 
+                                value={spec.https_auto_cert?.add_hsts ? 'Enabled' : 'Disabled'} 
+                                enabled={spec.https_auto_cert?.add_hsts}
+                             />
+                             <DetailItem 
+                                label="HTTP Redirect" 
+                                value={spec.https_auto_cert?.http_redirect ? 'Enabled' : 'Disabled'} 
+                                enabled={spec.https_auto_cert?.http_redirect}
+                             />
+                             <DetailItem 
+                                label="Cert State" 
+                                value={spec.cert_state || spec.auto_cert_info?.auto_cert_state || 'Unknown'} 
+                                warning={spec.cert_state !== 'AutoCertReady'}
+                             />
+                         </div>
+
+                         {/* Certificate Info */}
+                         {spec.auto_cert_info && (
+                             <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                                 <span className="text-xs text-slate-500 block mb-3">Auto Certificate Details</span>
+                                 <div className="grid grid-cols-2 gap-4">
+                                     <DetailItem 
+                                        label="Expiry Date" 
+                                        value={spec.auto_cert_info.auto_cert_expiry ? new Date(spec.auto_cert_info.auto_cert_expiry).toLocaleString() : 'N/A'} 
+                                     />
+                                     <DetailItem label="Subject" value={spec.auto_cert_info.auto_cert_subject || 'N/A'} small />
+                                     <DetailItem label="Issuer" value={spec.auto_cert_info.auto_cert_issuer || 'N/A'} small />
+                                 </div>
+                                 
+                                 {/* DNS Records for ACME */}
+                                 {spec.auto_cert_info.dns_records && spec.auto_cert_info.dns_records.length > 0 && (
+                                     <div className="mt-4 pt-3 border-t border-slate-700/50">
+                                         <span className="text-xs text-amber-400 block mb-2 flex items-center gap-2">
+                                            <AlertTriangle className="w-3 h-3" /> DNS Records for Challenge
+                                         </span>
+                                         <div className="space-y-2">
+                                             {spec.auto_cert_info.dns_records.map((rec: any, idx: number) => (
+                                                 <div key={idx} className="bg-slate-800/50 p-2 rounded text-xs font-mono flex flex-col md:flex-row gap-2">
+                                                     <span className="text-slate-400 font-bold">{rec.type}</span>
+                                                     <span className="text-slate-300">{rec.name}</span>
+                                                     <span className="text-slate-500">→</span>
+                                                     <span className="text-cyan-300 select-all">{rec.value}</span>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                     </div>
+                                 )}
+                             </div>
+                         )}
+                     </div>
+                 )}
+            </section>
+
+            {/* 5. Origin Configuration */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('origins')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                      <div className="flex items-center gap-3">
@@ -710,7 +793,7 @@ export function ConfigVisualizer() {
                  )}
             </section>
 
-            {/* 5. Caching Policies */}
+            {/* 6. Caching Policies */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('caching')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                      <div className="flex items-center gap-3">
@@ -823,7 +906,47 @@ export function ConfigVisualizer() {
                  )}
             </section>
 
-            {/* 6. Security Configuration */}
+            {/* 7. Header Modifications (If present) */}
+            {(spec.request_headers_to_add || spec.response_headers_to_add) && (
+                <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                        <Settings className="w-5 h-5 text-blue-400" />
+                        <h2 className="text-lg font-semibold text-slate-100">Header Modifications</h2>
+                    </div>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {spec.request_headers_to_add && spec.request_headers_to_add.length > 0 && (
+                            <div>
+                                <span className="text-xs text-slate-500 block mb-2">Request Headers (Add)</span>
+                                <div className="space-y-2">
+                                    {spec.request_headers_to_add.map((h: any, i: number) => (
+                                        <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-700/30 rounded text-sm">
+                                            <span className="text-blue-300 font-mono">{h.name}</span>
+                                            <span className="text-slate-500">:</span>
+                                            <span className="text-slate-300">{h.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {spec.response_headers_to_add && spec.response_headers_to_add.length > 0 && (
+                            <div>
+                                <span className="text-xs text-slate-500 block mb-2">Response Headers (Add)</span>
+                                <div className="space-y-2">
+                                    {spec.response_headers_to_add.map((h: any, i: number) => (
+                                        <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-700/30 rounded text-sm">
+                                            <span className="text-emerald-300 font-mono">{h.name}</span>
+                                            <span className="text-slate-500">:</span>
+                                            <span className="text-slate-300">{h.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            )}
+
+            {/* 8. Security Configuration */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                 <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                     <div className="flex items-center gap-3">
