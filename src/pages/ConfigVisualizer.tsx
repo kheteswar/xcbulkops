@@ -97,7 +97,7 @@ export function ConfigVisualizer() {
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [scanLog, setScanLog] = useState('');
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['routes', 'origins', 'security', 'tls', 'caching', 'apptype']));
 
   const [state, setState] = useState<ViewerState>({
     rootLB: null,
@@ -271,6 +271,16 @@ export function ConfigVisualizer() {
   const startViewer = async () => {
     if (!selectedNs || !selectedResource) return;
     setIsLoading(true);
+
+    // NEW: Force all sections to expand when loading a new resource
+    setExpandedSections(new Set([
+      'routes', 
+      'origins', 
+      'security', 
+      'tls', 
+      'caching', 
+      'apptype'
+    ]));
     
     // Reset state
     const newState: ViewerState = {
