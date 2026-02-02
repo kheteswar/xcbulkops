@@ -336,6 +336,14 @@ export function ConfigVisualizer() {
               servicePolicies.set(pol.name, sp);
             } catch (err2) {
               log(`Failed to fetch service policy from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
+              // Fallback to ves-io-shared namespace (for system policies like ves-io-allow-all)
+              try {
+                const sp = await apiClient.get(`/api/config/namespaces/ves-io-shared/service_policys/${pol.name}`);
+                servicePolicies.set(pol.name, sp);
+                log(`Found service policy ${pol.name} in ves-io-shared namespace`);
+              } catch (err3) {
+                log(`Failed to fetch service policy from ves-io-shared: ${err3 instanceof Error ? err3.message : 'Unknown error'}`);
+              }
             }
           }
         }
