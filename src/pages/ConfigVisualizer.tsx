@@ -639,7 +639,7 @@ export function ConfigVisualizer() {
               }}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[120px]"
             >
-              <option value="http">HTTP LB</option>
+              <option value="http">HTTP LBs</option>
               <option value="cdn">CDN</option>
             </select>
             
