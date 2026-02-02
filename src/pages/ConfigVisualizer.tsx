@@ -679,7 +679,7 @@ export function ConfigVisualizer() {
                                 <DetailItem label="Timeout" value={spec.origin_pool.origin_request_timeout || 'Default'} />
                              </div>
 
-                             {/* Advanced Origin Options (NEW) */}
+                             {/* Advanced Origin Options */}
                              {spec.origin_pool.more_origin_options && (
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 border-b border-slate-700/50 pb-4">
                                    <DetailItem 
@@ -741,13 +741,23 @@ export function ConfigVisualizer() {
                                  <div className="space-y-4">
                                     {[...(spec.custom_cache_rule?.cdn_cache_rules || []), ...(spec.cdn_settings?.cache_rules || [])].map((ref: any, idx: number) => {
                                         const ruleDetail = state.cacheRules.get(ref.name);
-                                        const ruleSpec = ruleDetail?.spec?.cache_rules; // Access specific cache rule spec if structured this way
+                                        const ruleSpec = ruleDetail?.spec?.cache_rules; 
                                         
-                                        // Logic to determine cache action and settings from potentially nested objects
+                                        // 1. Determine Action (Bypass vs Cache)
                                         const isBypass = ruleSpec?.cache_bypass;
                                         const eligible = ruleSpec?.eligible_for_cache;
-                                        // Handle both URI and Request URI keys found in different schemas
-                                        const cacheConfig = eligible?.scheme_proxy_host_uri || eligible?.scheme_proxy_host_request_uri;
+                                        
+                                        // 2. Determine Cache Key Type & Config
+                                        let cacheKeyLabel = 'Default';
+                                        let cacheConfig = null;
+
+                                        if (eligible?.scheme_proxy_host_uri) {
+                                            cacheKeyLabel = 'Scheme + Host + URI (Ignores Query)';
+                                            cacheConfig = eligible.scheme_proxy_host_uri;
+                                        } else if (eligible?.scheme_proxy_host_request_uri) {
+                                            cacheKeyLabel = 'Scheme + Host + Request URI (Includes Query)';
+                                            cacheConfig = eligible.scheme_proxy_host_request_uri;
+                                        }
 
                                         return (
                                             <div key={idx} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
@@ -771,6 +781,15 @@ export function ConfigVisualizer() {
                                                             warning={!!isBypass}
                                                             enabled={!isBypass}
                                                         />
+                                                        
+                                                        {/* Show Cache Key Type if caching is enabled */}
+                                                        {!isBypass && (
+                                                            <div className="col-span-2 md:col-span-1">
+                                                                <span className="text-xs text-slate-500 block mb-0.5">Cache Key</span>
+                                                                <span className="text-sm text-cyan-400" title={cacheKeyLabel}>{cacheKeyLabel}</span>
+                                                            </div>
+                                                        )}
+
                                                         {!isBypass && cacheConfig && (
                                                             <>
                                                                 <DetailItem 
