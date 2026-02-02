@@ -39,6 +39,8 @@ import {
   ShieldOff,
   Layers,
   Route,
+  Cloud,
+  HardDrive,
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
