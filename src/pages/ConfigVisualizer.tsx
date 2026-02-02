@@ -3409,7 +3409,7 @@ export function ConfigVisualizer() {
                   );
                 })()}
               </div>
-            )}
+            )};
 
   const renderCDNContent = () => {
       const cdn = state.rootCDN!;
