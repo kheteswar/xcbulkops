@@ -2838,7 +2838,7 @@ export function ConfigVisualizer() {
                       </div>
                     )}
 
-                    {(spec?.blocked_clients?.length || spec?.trusted_clients?.length) && (
+                    {((spec?.blocked_clients?.length || 0) + (spec?.trusted_clients?.length || 0)) > 0 && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
