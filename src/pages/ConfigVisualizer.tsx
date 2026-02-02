@@ -46,6 +46,11 @@ import { useToast } from '../context/ToastContext';
 import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
 
+
+function isDefined<T>(v: T | null | undefined): v is T {
+  return v !== undefined && v !== null;
+}
+
 const FEATURE_TYPE_NAMES: Record<string, string> = {
   'USER_BEHAVIOR_ANALYSIS': 'Malicious User Detection',
   'TIMESERIES_ANOMALY_DETECTION': 'DDoS Detection',
@@ -888,7 +893,7 @@ export function ConfigVisualizer() {
                                 value={ubaSetting.enable_learning ? 'Enabled' : 'Disabled'}
                                 enabled={ubaSetting.enable_learning}
                               />
-                              {ubaSetting.cooldown_period && (
+                              {isDefined(ubaSetting.cooldown_period) && (
                                 <DetailItem label="Cooldown Period" value={`${ubaSetting.cooldown_period}s`} />
                               )}
                               <DetailItem
