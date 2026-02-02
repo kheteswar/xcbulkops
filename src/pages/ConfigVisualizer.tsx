@@ -659,7 +659,6 @@ export function ConfigVisualizer() {
             )}
 
             {/* 4. Origin Configuration */}
-            {/* 4. Origin Configuration */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('origins')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                      <div className="flex items-center gap-3">
@@ -712,7 +711,6 @@ export function ConfigVisualizer() {
             </section>
 
             {/* 5. Caching Policies */}
-            {/* 5. Caching Policies */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('caching')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                      <div className="flex items-center gap-3">
@@ -743,11 +741,13 @@ export function ConfigVisualizer() {
                                  <div className="space-y-4">
                                     {[...(spec.custom_cache_rule?.cdn_cache_rules || []), ...(spec.cdn_settings?.cache_rules || [])].map((ref: any, idx: number) => {
                                         const ruleDetail = state.cacheRules.get(ref.name);
+                                        const ruleSpec = ruleDetail?.spec?.cache_rules; // Access specific cache rule spec if structured this way
                                         
-                                        // Logic to determine cache action and settings
-                                        const isBypass = ruleDetail?.spec?.cache_bypass;
-                                        const cacheConfig = ruleDetail?.spec?.eligible_for_cache?.scheme_proxy_host_uri || 
-                                                            ruleDetail?.spec?.eligible_for_cache?.scheme_proxy_host_request_uri;
+                                        // Logic to determine cache action and settings from potentially nested objects
+                                        const isBypass = ruleSpec?.cache_bypass;
+                                        const eligible = ruleSpec?.eligible_for_cache;
+                                        // Handle both URI and Request URI keys found in different schemas
+                                        const cacheConfig = eligible?.scheme_proxy_host_uri || eligible?.scheme_proxy_host_request_uri;
 
                                         return (
                                             <div key={idx} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
@@ -789,8 +789,8 @@ export function ConfigVisualizer() {
                                                                 />
                                                             </>
                                                         )}
-                                                        {ruleDetail.spec?.browser_ttl && (
-                                                            <DetailItem label="Browser TTL" value={`${ruleDetail.spec.browser_ttl}s`} />
+                                                        {ruleSpec?.browser_ttl && (
+                                                            <DetailItem label="Browser TTL" value={`${ruleSpec.browser_ttl}s`} />
                                                         )}
                                                     </div>
                                                 ) : <span className="text-sm text-slate-500 italic">Details not fetched</span>}
