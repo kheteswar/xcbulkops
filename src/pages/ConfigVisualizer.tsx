@@ -911,7 +911,7 @@ export function ConfigVisualizer() {
           </div>
         )}
 
-        {!isLoading && !lb && (
+        {!isLoading && !lb && !state.rootCDN && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <Grid3X3 className="w-16 h-16 text-slate-600 mb-4" />
             <h2 className="text-xl font-semibold text-slate-300 mb-2">
