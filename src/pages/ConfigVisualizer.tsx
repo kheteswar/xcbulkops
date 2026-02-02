@@ -43,7 +43,7 @@ import {
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import type { Namespace, LoadBalancer, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
+import type { Namespace, LoadBalancer, CDNLoadBalancer, CDNCacheRule, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
 import { formatCertificateUrl, extractCertificateFromUrl } from '../utils/certParser';
 
 
@@ -76,6 +76,8 @@ interface ViewerState {
   appSetting: AppSetting | null;
   appTypeSetting: AppTypeSetting | null;
   userIdentificationPolicy: UserIdentificationPolicy | null;
+  rootCDN: CDNLoadBalancer | null;
+  cacheRules: Map<string, CDNCacheRule>;
 }
 
 export function ConfigVisualizer() {
@@ -83,8 +85,10 @@ export function ConfigVisualizer() {
   const navigate = useNavigate();
   const toast = useToast();
 
+  const [selectedType, setSelectedType] = useState<'http' | 'cdn'>('http');
+
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
-  const [loadBalancers, setLoadBalancers] = useState<LoadBalancer[]>([]);
+  const [resourceList, setResourceList] = useState<Array<{ name: string }>>([]);
   const [selectedNs, setSelectedNs] = useState('');
   const [selectedLb, setSelectedLb] = useState('');
   const [isLoadingNs, setIsLoadingNs] = useState(true);
@@ -95,6 +99,8 @@ export function ConfigVisualizer() {
 
   const [state, setState] = useState<ViewerState>({
     rootLB: null,
+    rootCDN: null,
+    cacheRules: new Map(),
     namespace: '',
     routes: [],
     originPools: new Map(),
@@ -131,22 +137,28 @@ export function ConfigVisualizer() {
     }
   };
 
-  const loadLoadBalancers = async (ns: string) => {
+  const loadResources = async (ns: string, type: 'http' | 'cdn') => {
     setSelectedNs(ns);
-    setSelectedLb('');
-    setLoadBalancers([]);
+    setSelectedLb(''); // Reset selection
+    setResourceList([]);
+    
     if (!ns) return;
 
-    setIsLoadingLbs(true);
+    setIsLoadingLbs(true); // You can keep using isLoadingLbs or rename it to isLoadingResources
     try {
-      const resp = await apiClient.getLoadBalancers(ns);
-      setLoadBalancers((resp.items || []).sort((a, b) => a.name.localeCompare(b.name)));
+      if (type === 'http') {
+        const resp = await apiClient.getLoadBalancers(ns);
+        setResourceList((resp.items || []).sort((a, b) => a.name.localeCompare(b.name)));
+      } else {
+        const resp = await apiClient.getCDNs(ns);
+        setResourceList((resp.items || []).sort((a, b) => a.name.localeCompare(b.name)));
+      }
     } catch {
-      toast.error('Failed to load load balancers');
+      toast.error(`Failed to load ${type.toUpperCase()} resources`);
     } finally {
       setIsLoadingLbs(false);
     }
-  };
+};
 
   const log = useCallback((msg: string) => setScanLog(msg), []);
 
@@ -619,7 +631,7 @@ export function ConfigVisualizer() {
           <div className="flex items-center gap-3">
             <select
               value={selectedNs}
-              onChange={e => loadLoadBalancers(e.target.value)}
+              onChange={e => loadResources(e.target.value, selectedType)}
               disabled={isLoadingNs}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[180px]"
             >
@@ -632,17 +644,30 @@ export function ConfigVisualizer() {
             </select>
 
             <select
+              value={selectedType}
+              onChange={e => {
+                const newType = e.target.value as 'http' | 'cdn';
+                setSelectedType(newType);
+                loadResources(selectedNs, newType);
+              }}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[120px]"
+            >
+              <option value="http">HTTP LB</option>
+              <option value="cdn">CDN</option>
+            </select>
+
+            <select
               value={selectedLb}
               onChange={e => setSelectedLb(e.target.value)}
               disabled={!selectedNs || isLoadingLbs}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[200px] disabled:opacity-50"
             >
               <option value="">
-                {isLoadingLbs ? 'Loading...' : 'Select Load Balancer'}
+                {isLoadingLbs ? 'Loading...' : `Select ${selectedType === 'http' ? 'Load Balancer' : 'Distribution'}`}
               </option>
-              {loadBalancers.map(lb => (
-                <option key={lb.name} value={lb.name}>
-                  {lb.name}
+              {resourceList.map(r => (
+                <option key={r.name} value={r.name}>
+                  {r.name}
                 </option>
               ))}
             </select>
