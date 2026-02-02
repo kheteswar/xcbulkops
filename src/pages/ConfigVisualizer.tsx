@@ -601,7 +601,440 @@ export function ConfigVisualizer() {
     return colors[method] || 'bg-slate-500/15 text-slate-400';
   };
 
-  
+  const renderHTTPLBContent = () => {
+    const lb = state.rootLB!;
+    const spec = lb.spec as any;
+    const sysMeta = lb.system_metadata as any;
+
+    // Helper to calculate stats
+    const routeCount = state.routes.length;
+    const poolCount = state.originPools.size;
+    const wafEnabled = spec.app_firewall && !spec.disable_waf;
+    const botEnabled = !spec.disable_bot_defense;
+    const ipRepEnabled = !spec.disable_ip_reputation;
+    const clientListCount = (spec.trusted_clients?.length || 0) + (spec.blocked_clients?.length || 0);
+    
+    // Determine advertise type
+    const advertiseType = spec.advertise_on_public_default_vip
+      ? 'Public Default VIP'
+      : spec.advertise_on_public
+      ? 'Public Custom'
+      : 'Custom/Internal';
+
+    // Determine LB Type Label
+    let lbType = 'HTTP';
+    let lbTypeClass = 'bg-slate-600';
+    if (spec?.https_auto_cert) {
+      lbType = 'HTTPS (Auto Cert)';
+      lbTypeClass = 'bg-emerald-600';
+    } else if (spec?.https) {
+      lbType = 'HTTPS (Custom)';
+      lbTypeClass = 'bg-blue-600';
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* 1. Header & Meta */}
+        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-blue-500/15 rounded-xl flex items-center justify-center text-blue-400">
+                <Globe className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded ${lbTypeClass} text-white`}>
+                    {lbType}
+                  </span>
+                  <span className="px-2 py-0.5 text-xs font-semibold rounded bg-slate-700 text-slate-300">
+                    {advertiseType}
+                  </span>
+                  {lb.metadata?.disable && (
+                    <span className="px-2 py-0.5 text-xs font-semibold rounded bg-red-500/20 text-red-400">Disabled</span>
+                  )}
+                </div>
+                <h1 className="text-2xl font-bold text-slate-100">{lb.metadata?.name}</h1>
+                
+                {/* Meta Information (Creator, Time, etc) */}
+                <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
+                  <span className="flex items-center gap-1"><Home className="w-4 h-4" /> {lb.metadata?.namespace}</span>
+                  <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Created: {formatDate(sysMeta?.creation_timestamp)}</span>
+                  {sysMeta?.modification_timestamp && (
+                    <span className="flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Modified: {formatDate(sysMeta.modification_timestamp)}</span>
+                  )}
+                  {sysMeta?.creator_id && (
+                    <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" /> Creator: {sysMeta.creator_id}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setJsonModal({ title: 'Complete Load Balancer Configuration', data: lb })}
+              className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+            >
+              <Code className="w-4 h-4" /> JSON
+            </button>
+          </div>
+          
+          {/* Labels */}
+          {lb.metadata?.labels && Object.keys(lb.metadata.labels).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-700">
+              <div className="flex items-center gap-2 mb-2">
+                <Hash className="w-4 h-4 text-slate-400" />
+                <span className="text-sm font-medium text-slate-400">Labels</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(lb.metadata.labels).map(([key, value]) => (
+                  <span key={key} className="inline-flex items-center px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
+                    <span className="text-blue-400 font-medium">{key}</span>
+                    <span className="text-slate-500 mx-1.5">=</span>
+                    <span className="text-slate-300">{String(value)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 2. Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+          {[
+            { label: 'Domains', value: spec.domains?.length || 0, icon: Globe, color: 'text-blue-400' },
+            { label: 'Routes', value: routeCount, icon: Route, color: 'text-cyan-400' },
+            { label: 'Pools', value: poolCount, icon: Server, color: 'text-emerald-400' },
+            { label: 'Health Checks', value: state.healthChecks.size, icon: Activity, color: 'text-rose-400' },
+            { label: 'WAF Policies', value: state.wafPolicies.size, icon: Shield, color: 'text-amber-400' },
+            { label: 'Service Policies', value: state.servicePolicies.size, icon: FileText, color: 'text-teal-400' },
+            { label: 'WAF Exclusions', value: spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length || 0, icon: ShieldOff, color: (spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || spec?.waf_exclusion_rules?.length) ? 'text-amber-400' : 'text-slate-500' },
+            { label: 'Trusted Clients', value: clientListCount, icon: User, color: clientListCount > 0 ? 'text-indigo-400' : 'text-slate-500' },
+          ].map(stat => (
+            <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+              <div className={`w-7 h-7 mb-1.5 ${stat.color}`}><stat.icon className="w-full h-full" /></div>
+              <div className="text-lg font-bold text-slate-100">{stat.value}</div>
+              <div className="text-xs text-slate-500">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 3. App Type Section */}
+        {state.appType && (() => {
+           const appTypeSpec = state.appType.spec || state.appType.get_spec;
+           const appTypeName = state.appType.metadata?.name || state.appType.name || 'Unknown';
+           const appTypeNs = state.appType.metadata?.namespace || state.appType.namespace || 'shared';
+           const appTypeDisabled = state.appType.metadata?.disable || state.appType.disabled;
+           
+           return (
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+               <button onClick={() => toggleSection('apptype')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                  <div className="flex items-center gap-3">
+                     <Layers className="w-5 h-5 text-violet-400" />
+                     <h2 className="text-lg font-semibold text-slate-100">App Type Settings</h2>
+                     <span className="px-2 py-0.5 bg-violet-500/15 text-violet-400 rounded text-xs font-medium">{appTypeName}</span>
+                  </div>
+                  {expandedSections.has('apptype') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+               </button>
+               {expandedSections.has('apptype') && (
+                 <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                       <DetailItem label="App Type Name" value={appTypeName} />
+                       <DetailItem label="Namespace" value={appTypeNs} />
+                       <DetailItem label="Status" value={appTypeDisabled ? 'Disabled' : 'Enabled'} enabled={!appTypeDisabled} />
+                       {state.appSetting && (
+                          <DetailItem label="App Setting" value={state.appSetting.metadata?.name || state.appSetting.name || 'N/A'} />
+                       )}
+                    </div>
+                    {appTypeSpec?.features && appTypeSpec.features.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                           <Activity className="w-4 h-4 text-cyan-400" /> AI/ML Feature Types
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {appTypeSpec.features.map((feature: any, idx: number) => (
+                             <div key={idx} className="p-3 rounded-lg border bg-emerald-500/5 border-emerald-500/20">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm text-slate-300">{getFeatureDisplayName(feature.type || '')}</span>
+                                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 flex-shrink-0">Enabled</span>
+                                </div>
+                                <span className="text-xs text-slate-500 mt-1 block">{feature.type}</span>
+                             </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                 </div>
+               )}
+            </section>
+           );
+        })()}
+
+        {/* 4. Domains & DNS */}
+        {spec?.domains && spec.domains.length > 0 && (
+          <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+              <Globe className="w-5 h-5 text-blue-400" />
+              <h2 className="text-lg font-semibold text-slate-100">Domains & Listeners</h2>
+            </div>
+            <div className="p-6 space-y-4">
+               <div className="flex flex-wrap gap-2">
+                {spec.domains.map((d: string) => (
+                  <div key={d} className="flex items-center gap-3 p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                    <Globe className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                    <div className="text-slate-200 font-medium truncate">{d}</div>
+                    <a href={`https://${d}`} target="_blank" rel="noreferrer" className="p-1 text-slate-500 hover:text-slate-300">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+
+              {/* DNS VIP & CNAME Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-700/50">
+                  <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50">
+                        <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Network className="w-3 h-3"/> CNAME Record</span>
+                        <code className="text-cyan-400 text-sm break-all select-all">{spec.host_name || 'N/A'}</code>
+                  </div>
+                  <div className="p-3 bg-slate-900/40 rounded border border-slate-700/50">
+                        <span className="text-xs text-slate-500 block mb-1 flex items-center gap-1"><Globe className="w-3 h-3"/> DNS VIP (IP Address)</span>
+                        <code className="text-emerald-400 text-sm select-all">{spec.dns_info?.[0]?.ip_address || 'Pending'}</code>
+                  </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                <DetailItem label="HSTS Header" value={spec.add_hsts_header || spec.https_auto_cert?.add_hsts ? 'Enabled' : 'Disabled'} enabled={spec.add_hsts_header || spec.https_auto_cert?.add_hsts} />
+                <DetailItem label="HTTP Redirect" value={spec.http_redirect || spec.https_auto_cert?.http_redirect ? 'Enabled' : 'Disabled'} enabled={spec.http_redirect || spec.https_auto_cert?.http_redirect} />
+                <DetailItem label="WebSocket" value={spec.enable_websocket ? 'Enabled' : 'Disabled'} />
+                <DetailItem label="Compression" value={spec.enable_automatic_compression ? 'Enabled' : 'Disabled'} />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* 5. TLS Configuration */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+           <button onClick={() => toggleSection('tls')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+             <div className="flex items-center gap-3">
+                <Lock className="w-5 h-5 text-amber-400" />
+                <h2 className="text-lg font-semibold text-slate-100">TLS & Certificate Configuration</h2>
+             </div>
+             {expandedSections.has('tls') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+           </button>
+           
+           {expandedSections.has('tls') && (
+             <div className="p-6 space-y-6">
+                {!spec?.https_auto_cert && !spec?.https ? (
+                   <div className="flex items-center gap-3 text-slate-500">
+                      <ShieldOff className="w-5 h-5" /><span>HTTP only - No TLS configured</span>
+                   </div>
+                ) : (
+                  <>
+                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        <DetailItem label="TLS Type" value={spec?.https_auto_cert ? "Auto Certificate" : 'Custom Certificate'} />
+                        <DetailItem label="Min TLS" value={(spec?.https_auto_cert?.tls_config || spec?.https?.tls_config)?.min_version || 'TLS 1.0'} />
+                        <DetailItem label="mTLS" value={(spec?.https_auto_cert || spec?.https)?.mtls ? 'Enabled' : 'Disabled'} enabled={(spec?.https_auto_cert || spec?.https)?.mtls} />
+                     </div>
+
+                     {/* Auto Cert Details */}
+                     {spec.https_auto_cert && (
+                         <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                             <div className="flex items-center justify-between mb-3">
+                                 <span className="text-sm font-medium text-slate-200">Auto Cert Status</span>
+                                 <span className={`px-2 py-0.5 rounded text-xs ${spec.cert_state === 'CertificateValid' || spec.auto_cert_info?.auto_cert_state === 'CertificateValid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                    {spec.cert_state || spec.auto_cert_info?.auto_cert_state || 'Unknown'}
+                                 </span>
+                             </div>
+                             <div className="grid grid-cols-2 gap-4">
+                                <DetailItem label="Expiry Date" value={spec.auto_cert_info?.auto_cert_expiry ? new Date(spec.auto_cert_info.auto_cert_expiry).toLocaleString() : 'N/A'} />
+                                <DetailItem label="Issuer" value={spec.auto_cert_info?.auto_cert_issuer || 'N/A'} small />
+                             </div>
+                             {/* ACME Records */}
+                             {spec.auto_cert_info?.dns_records && spec.auto_cert_info.dns_records.length > 0 && (
+                                 <div className="mt-3 pt-3 border-t border-slate-700/50">
+                                     <span className="text-xs text-amber-400 block mb-2 flex items-center gap-2"><AlertTriangle className="w-3 h-3" /> ACME Challenge</span>
+                                     <div className="space-y-1">
+                                         {spec.auto_cert_info.dns_records.map((rec: any, idx: number) => (
+                                             <div key={idx} className="bg-slate-800/50 p-2 rounded text-xs font-mono flex flex-col md:flex-row gap-2">
+                                                 <span className="text-slate-400">{rec.type}</span>
+                                                 <span className="text-slate-300">{rec.name}</span>
+                                                 <span className="text-cyan-300 select-all">{rec.value}</span>
+                                             </div>
+                                         ))}
+                                     </div>
+                                 </div>
+                             )}
+                         </div>
+                     )}
+
+                     {/* Custom Certs */}
+                     {spec.https?.tls_cert_params?.certificates?.map((cert: any, idx: number) => (
+                        <div key={idx} className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50 flex justify-between items-center">
+                            <div>
+                                <span className="text-xs text-slate-500 block">Custom Certificate</span>
+                                <span className="text-slate-200">{cert.name}</span>
+                            </div>
+                            <span className="px-2 py-1 bg-slate-800 rounded text-xs text-slate-400">Namespace: {cert.namespace || 'shared'}</span>
+                        </div>
+                     ))}
+                  </>
+                )}
+             </div>
+           )}
+        </section>
+
+        {/* 6. Access Control List (Trusted/Blocked) */}
+        {(spec.trusted_clients?.length > 0 || spec.blocked_clients?.length > 0) && (
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                 <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                     <div className="flex items-center gap-3"><ShieldAlert className="w-5 h-5 text-rose-400" /> <h2 className="text-lg font-semibold text-slate-100">Access Control Lists</h2></div>
+                     {expandedSections.has('security') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                 </button>
+                 {expandedSections.has('security') && (
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 className="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2"><User className="w-4 h-4" /> Trusted Clients (Allow)</h4>
+                            <div className="space-y-2">
+                                {spec.trusted_clients?.map((client: any, i: number) => (
+                                    <div key={i} className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-emerald-300 font-mono text-sm">{client.ip_prefix}</span>
+                                            <span className="text-xs text-slate-500">Trusted</span>
+                                        </div>
+                                        {client.actions && client.actions.length > 0 && (
+                                            <div className="mt-2 flex flex-wrap gap-1">
+                                                {client.actions.map((act: string) => (
+                                                    <span key={act} className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 border border-slate-700">
+                                                        {act.replace('SKIP_PROCESSING_', '').replace(/_/g, ' ')}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-medium text-rose-400 mb-3 flex items-center gap-2"><ShieldOff className="w-4 h-4" /> Blocked Clients (Deny)</h4>
+                            <div className="space-y-2">
+                                {spec.blocked_clients?.map((client: any, i: number) => (
+                                    <div key={i} className="p-3 bg-rose-500/5 border border-rose-500/20 rounded flex justify-between items-center">
+                                         <span className="text-rose-300 font-mono text-sm">{client.ip_prefix}</span>
+                                         <span className="text-xs text-slate-500 ml-2">Blocked</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                 )}
+            </section>
+        )}
+
+        {/* 7. Routes Configuration */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+             <button onClick={() => toggleSection('routes')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                 <div className="flex items-center gap-3"><Route className="w-5 h-5 text-cyan-400" /> <h2 className="text-lg font-semibold text-slate-100">Routes Configuration</h2></div>
+                 {expandedSections.has('routes') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+             </button>
+             {expandedSections.has('routes') && (
+                 <div className="p-6 space-y-4">
+                     {state.routes.map((r, i) => (
+                         <div key={i} className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                             <div className="flex items-center gap-3 mb-2">
+                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${getMethodColor(r.method || 'ANY')}`}>{r.method}</span>
+                                 <code className="text-lg text-slate-200 font-mono">{r.path}</code>
+                             </div>
+                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                                  <DetailItem label="Type" value={r.type} small />
+                                  <DetailItem label="Timeout" value={`${r.timeout}ms`} small />
+                                  {r.advancedOptions && (
+                                     <>
+                                        <DetailItem label="Host Rewrite" value={r.advancedOptions.hostRewrite || 'None'} small />
+                                        <DetailItem label="Prefix Rewrite" value={r.advancedOptions.prefixRewrite || 'None'} small />
+                                     </>
+                                  )}
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+             )}
+        </section>
+
+        {/* 8. Origin Pools */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+             <button onClick={() => toggleSection('origins')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                 <div className="flex items-center gap-3"><Server className="w-5 h-5 text-emerald-400" /> <h2 className="text-lg font-semibold text-slate-100">Origin Pools</h2></div>
+                 {expandedSections.has('origins') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+             </button>
+             {expandedSections.has('origins') && (
+                 <div className="p-6 space-y-4">
+                     {Array.from(state.originPools.entries()).map(([name, pool]) => (
+                         <div key={name} className="bg-slate-700/30 rounded-xl border border-slate-700/50 p-5">
+                             <div className="flex items-center gap-3 mb-4">
+                                <Server className="w-6 h-6 text-emerald-400" />
+                                <div>
+                                    <h3 className="font-semibold text-slate-200">{name}</h3>
+                                    <span className="text-xs text-slate-500">{pool.metadata?.namespace}</span>
+                                </div>
+                             </div>
+                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <DetailItem label="Port" value={pool.spec?.port?.toString() || 'N/A'} />
+                                <DetailItem label="Algorithm" value={formatAlgorithm(pool.spec?.loadbalancer_algorithm)} />
+                                <DetailItem label="Health Checks" value={pool.spec?.healthcheck?.length ? `${pool.spec.healthcheck.length}` : '0'} />
+                                <DetailItem label="TLS to Origin" value={pool.spec?.use_tls ? 'Enabled' : 'Disabled'} />
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+             )}
+        </section>
+
+        {/* 9. Security & Features Status (Restored Full Logic) */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+            <button onClick={() => toggleSection('features')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                <div className="flex items-center gap-3"><Activity className="w-5 h-5 text-cyan-400" /> <h2 className="text-lg font-semibold text-slate-100">Features Status</h2></div>
+                {expandedSections.has('features') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+            </button>
+            {expandedSections.has('features') && (
+                <div className="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <FeatureStatusItem label="Bot Defense" enabled={botEnabled} disabled={!botEnabled} />
+                    <FeatureStatusItem label="WAF" enabled={wafEnabled} disabled={!wafEnabled} />
+                    <FeatureStatusItem label="IP Reputation" enabled={ipRepEnabled} disabled={!ipRepEnabled} />
+                    <FeatureStatusItem label="API Discovery" enabled={!spec?.disable_api_discovery} disabled={!!spec?.disable_api_discovery} />
+                    <FeatureStatusItem label="DDoS Protection" enabled={!!spec?.l7_ddos_protection} disabled={!spec?.l7_ddos_protection} />
+                    <FeatureStatusItem label="Malicious User" enabled={!spec?.disable_malicious_user_detection} disabled={!!spec?.disable_malicious_user_detection} />
+                    <FeatureStatusItem label="Client-Side Defense" enabled={!spec?.disable_client_side_defense} disabled={!!spec?.disable_client_side_defense} />
+                </div>
+            )}
+        </section>
+
+        {/* 10. Advanced Settings & Logging */}
+        <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+             <button onClick={() => toggleSection('advanced')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                 <div className="flex items-center gap-3"><Settings className="w-5 h-5 text-slate-400" /> <h2 className="text-lg font-semibold text-slate-100">Advanced Settings</h2></div>
+                 {expandedSections.has('advanced') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+             </button>
+             {expandedSections.has('advanced') && (
+                 <div className="p-6 space-y-4">
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                         <DetailItem label="Idle Timeout" value={spec?.idle_timeout ? `${spec.idle_timeout}ms` : 'Default'} />
+                         <DetailItem label="HTTP/2" value={!spec?.disable_http2 ? 'Enabled' : 'Disabled'} />
+                         <DetailItem label="Default Pools" value={spec?.default_route_pools?.length ? `${spec.default_route_pools.length}` : '0'} />
+                     </div>
+                     {spec?.more_option?.request_headers_to_add && (
+                         <div className="p-4 bg-slate-700/30 rounded-lg">
+                             <span className="text-xs text-slate-500 block mb-2">Request Headers to Add</span>
+                             <div className="flex flex-wrap gap-2">
+                                 {spec.more_option.request_headers_to_add.map((h: any, i: number) => (
+                                     <span key={i} className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded text-xs font-mono">{h.name}</span>
+                                 ))}
+                             </div>
+                         </div>
+                     )}
+                 </div>
+             )}
+        </section>
+
+      </div>
+    );
+  };
 
   const renderCDNContent = () => {
       const cdn = state.rootCDN!;
