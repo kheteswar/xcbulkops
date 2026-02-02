@@ -2685,7 +2685,7 @@ export function ConfigVisualizer() {
                   )}
 
                   <div className="space-y-4">
-                    {spec?.user_identification && (
+                    {spec && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
@@ -2694,10 +2694,15 @@ export function ConfigVisualizer() {
                             </div>
                             <div>
                               <h3 className="text-lg font-semibold text-slate-200">User Identification</h3>
-                              <span className="text-sm text-slate-400">{spec.user_identification.name}</span>
+                              {/* Fallback to 'Client IP Address' if user_identification is missing */}
+                              <span className="text-sm text-slate-400">
+                                {spec.user_identification?.name || 'Client IP Address'}
+                              </span>
                             </div>
                             <span className="px-2 py-1 bg-emerald-500/15 text-emerald-400 rounded text-xs font-medium">Enabled</span>
                           </div>
+                          
+                          {/* Only show JSON button if a custom policy is actually loaded */}
                           {state.userIdentificationPolicy && (
                             <button
                               onClick={() => setJsonModal({ title: `User Identification: ${spec.user_identification?.name}`, data: state.userIdentificationPolicy })}
@@ -2708,6 +2713,8 @@ export function ConfigVisualizer() {
                             </button>
                           )}
                         </div>
+                        
+                        {/* Rules table only renders if a custom policy exists */}
                         {state.userIdentificationPolicy && (() => {
                           const policySpec = state.userIdentificationPolicy.spec || state.userIdentificationPolicy.get_spec;
                           const rules = policySpec?.rules || [];
