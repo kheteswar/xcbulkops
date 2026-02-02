@@ -133,7 +133,19 @@ class F5XCApiClient {
     throw err;
   }
 }
+  // --- CDN APIs ---
+  async getCDNs(namespace: string): Promise<{ items: CDNLoadBalancer[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers`);
+  }
 
+  async getCDN(namespace: string, name: string): Promise<CDNLoadBalancer> {
+    return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers/${name}`);
+  }
+
+  async getCDNCacheRule(namespace: string, name: string): Promise<CDNCacheRule> {
+    return this.get(`/api/config/namespaces/${namespace}/cdn_cache_rules/${name}`);
+  }
+  
 }
 
 export const apiClient = new F5XCApiClient();

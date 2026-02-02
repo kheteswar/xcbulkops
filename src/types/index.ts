@@ -1032,3 +1032,76 @@ export interface AppTypeSetting {
     include_waf_data?: boolean;
   };
 }
+
+// ... (Keep all your existing interfaces)
+
+// --- NEW CDN INTERFACES ---
+
+export interface CDNLoadBalancer {
+  name: string;
+  namespace?: string;
+  metadata?: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    disable?: boolean;
+    description?: string;
+  };
+  system_metadata?: {
+    creation_timestamp: string;
+  };
+  spec?: CDNLoadBalancerSpec;
+}
+
+export interface CDNLoadBalancerSpec {
+  domains?: string[];
+  https_auto_cert?: TLSConfig;
+  https?: TLSConfig;
+  http_redirect?: boolean;
+  add_location?: boolean;
+  origin_pool?: ObjectRef;
+  app_firewall?: ObjectRef;
+  bot_defense?: {
+    policy?: ObjectRef;
+    regional_endpoint?: string;
+  };
+  disable_bot_defense?: boolean;
+  cdn_settings?: CDNSettings;
+  // Common fields shared with LB might appear here depending on config
+  [key: string]: unknown;
+}
+
+export interface CDNSettings {
+  default_cache_behavior?: string;
+  max_cache_size?: number; // in MB
+  cache_ttl?: number; // in seconds
+  cache_rules?: ObjectRef[];
+}
+
+export interface CDNCacheRule {
+  name: string;
+  metadata?: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    description?: string;
+  };
+  spec?: {
+    priority?: number;
+    path?: {
+      prefix?: string;
+      regex?: string;
+      exact?: string;
+    };
+    format_caching?: unknown;
+    query_params_caching?: {
+      include_all?: boolean;
+      include_list?: string[];
+      exclude_list?: string[];
+    };
+    cache_ttl?: number;
+    browser_ttl?: number;
+    ignore_origin_cache_control?: boolean;
+  };
+}
