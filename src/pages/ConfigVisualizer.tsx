@@ -326,18 +326,19 @@ export function ConfigVisualizer() {
       if (lb.spec?.active_service_policies?.policies) {
         for (const pol of lb.spec.active_service_policies.policies) {
           log(`Fetching Service Policy: ${pol.name}`);
+          const ns = pol.namespace || selectedNs;
+          log(`Fetching Service Policy: ${pol.name} (ns=${ns})`);
           try {
-            const sp = await apiClient.get(`/api/config/namespaces/${pol.namespace || selectedNs}/service_policys/${pol.name}`);
+            const sp = await apiClient.getServicePolicy(ns, pol.name);
             servicePolicies.set(pol.name, sp);
           } catch (err) {
-            log(`Failed to fetch service policy from ${pol.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            try {
-              const sp = await apiClient.get(`/api/config/namespaces/shared/service_policys/${pol.name}`);
-              servicePolicies.set(pol.name, sp);
-            } catch (err2) {
-              log(`Failed to fetch service policy from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-            }
+            log(
+              `Failed to fetch service policy ${pol.name} from ${ns}: ${
+                err instanceof Error ? err.message : 'Unknown error'
+              }`
+            );
           }
+
         }
       }
 
