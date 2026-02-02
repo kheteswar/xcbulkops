@@ -3832,6 +3832,9 @@ export function ConfigVisualizer() {
             })()}
           </div>
         )}
+
+        {!isLoading && state.rootCDN && renderCDNContent()}
+        
       </main>
 
       {jsonModal && (
