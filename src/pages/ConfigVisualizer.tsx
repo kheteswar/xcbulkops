@@ -642,31 +642,28 @@ export function ConfigVisualizer() {
                  ))}
             </div>
 
-            {/* 3. Service Domains (Highlighted) */}
+            {/* 3. Service Domains (Standard Style) */}
             {spec.service_domains && spec.service_domains.length > 0 && (
-                <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/30 rounded-xl p-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <Globe className="w-24 h-24 text-white" />
+                <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                        <Network className="w-5 h-5 text-indigo-400" />
+                        <h2 className="text-lg font-semibold text-slate-100">Service Domains</h2>
                     </div>
-                    <h2 className="text-lg font-semibold text-indigo-100 mb-3 flex items-center gap-2">
-                        <Network className="w-5 h-5 text-indigo-400" /> Service Domains
-                    </h2>
-                    <div className="grid grid-cols-1 gap-3">
+                    <div className="p-6 grid grid-cols-1 gap-3">
                         {spec.service_domains.map((sd: any, idx: number) => (
-                            <div key={idx} className="bg-slate-900/60 rounded-lg p-4 border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div key={idx} className="p-4 bg-slate-700/30 rounded border border-slate-700/50 grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                                 <div>
-                                    <span className="text-xs text-indigo-300 uppercase tracking-wider font-semibold">User Domain</span>
-                                    <div className="text-white font-mono text-lg">{sd.domain}</div>
+                                    <span className="text-xs text-slate-500 block mb-1">User Domain</span>
+                                    <code className="text-slate-200 text-lg">{sd.domain}</code>
                                 </div>
-                                <div className="hidden md:block text-indigo-500"><ArrowRight className="w-5 h-5" /></div>
-                                <div className="text-right">
-                                    <span className="text-xs text-indigo-300 uppercase tracking-wider font-semibold">Service Domain (CNAME)</span>
-                                    <div className="text-cyan-300 font-mono text-lg select-all cursor-text">{sd.service_domain}</div>
+                                <div className="md:text-right">
+                                    <span className="text-xs text-slate-500 block mb-1">CNAME Target</span>
+                                    <code className="text-cyan-400 select-all">{sd.service_domain}</code>
                                 </div>
                             </div>
                         ))}
                     </div>
-                </div>
+                </section>
             )}
 
             {/* 4. TLS & Certificate Details */}
