@@ -110,6 +110,8 @@ export function ConfigVisualizer() {
   });
 
   const [jsonModal, setJsonModal] = useState<{ title: string; data: unknown } | null>(null);
+  
+  const [resourceType, setResourceType] = useState<'http_lb' | 'cdn'>('http_lb');
 
   useEffect(() => {
     if (!isConnected) {
@@ -130,6 +132,21 @@ export function ConfigVisualizer() {
       setIsLoadingNs(false);
     }
   };
+
+  {selectedNamespace && (
+  <div style={{ marginTop: '8px' }}>
+    <label style={{ marginRight: '8px' }}>Resource Type:</label>
+
+    <select
+      value={resourceType}
+      onChange={(e) => setResourceType(e.target.value as 'http_lb' | 'cdn')}
+    >
+      <option value="http_lb">HTTP Load Balancer</option>
+      <option value="cdn">CDN</option>
+    </select>
+  </div>
+)}
+
 
   const loadLoadBalancers = async (ns: string) => {
     setSelectedNs(ns);
