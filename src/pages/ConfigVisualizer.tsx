@@ -629,6 +629,20 @@ export function ConfigVisualizer() {
           </div>
 
           <div className="flex items-center gap-3">
+
+             <select
+              value={selectedType}
+              onChange={e => {
+                const newType = e.target.value as 'http' | 'cdn';
+                setSelectedType(newType);
+                loadResources(selectedNs, newType);
+              }}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[120px]"
+            >
+              <option value="http">HTTP LB</option>
+              <option value="cdn">CDN</option>
+            </select>
+            
             <select
               value={selectedNs}
               onChange={e => loadResources(e.target.value, selectedType)}
@@ -641,19 +655,6 @@ export function ConfigVisualizer() {
                   {ns.name}
                 </option>
               ))}
-            </select>
-
-            <select
-              value={selectedType}
-              onChange={e => {
-                const newType = e.target.value as 'http' | 'cdn';
-                setSelectedType(newType);
-                loadResources(selectedNs, newType);
-              }}
-              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[120px]"
-            >
-              <option value="http">HTTP LB</option>
-              <option value="cdn">CDN</option>
             </select>
 
             <select
