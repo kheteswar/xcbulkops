@@ -1340,7 +1340,7 @@ export function ConfigVisualizer() {
                             )}
                           </div>
 
-                          {(r.headerMatchers?.length || r.queryParams?.length || r.corsPolicy || r.retries) && (
+                          {((r.headerMatchers?.length ?? 0) > 0 || (r.queryParams?.length ?? 0) > 0 || r.corsPolicy || r.retries) && (
                             <div className="pt-3 border-t border-slate-700/50 grid grid-cols-2 md:grid-cols-4 gap-3">
                               {r.headerMatchers && r.headerMatchers.length > 0 && (
                                 <div>
@@ -2791,7 +2791,7 @@ export function ConfigVisualizer() {
                           <DetailItem label="Expose Headers" value={spec.cors_policy.expose_headers || '*'} />
                           <DetailItem label="Allow Credentials" value={spec.cors_policy.allow_credentials ? 'Yes' : 'No'} enabled={spec.cors_policy.allow_credentials} />
                         </div>
-                        {(spec.cors_policy.allow_origin?.length || spec.cors_policy.allow_origin_regex?.length) && (
+                        {((spec.cors_policy.allow_origin?.length ?? 0) > 0 || (spec.cors_policy.allow_origin_regex?.length ?? 0) > 0) && (
                           <div className="border-t border-slate-700/50 pt-4">
                             <span className="text-xs text-slate-500 block mb-2">Allowed Origins</span>
                             <div className="flex flex-wrap gap-2">
@@ -2840,7 +2840,7 @@ export function ConfigVisualizer() {
                       </div>
                     )}
 
-                    {(spec?.blocked_clients?.length || spec?.trusted_clients?.length) && (
+                    {((spec?.blocked_clients?.length ?? 0) > 0 || (spec?.trusted_clients?.length ?? 0) > 0) && (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
@@ -3385,7 +3385,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {(moreOpts?.request_headers_to_add?.length || spec?.request_headers_to_add?.length) && (
+                        {((moreOpts?.request_headers_to_add?.length ?? 0) > 0 || (spec?.request_headers_to_add?.length ?? 0) > 0) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Request Headers to Add ({(moreOpts?.request_headers_to_add || spec?.request_headers_to_add || []).length})</span>
                             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -3400,7 +3400,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {(moreOpts?.response_headers_to_add?.length || spec?.response_headers_to_add?.length) && (
+                        {((moreOpts?.response_headers_to_add?.length ?? 0) > 0 || (spec?.response_headers_to_add?.length ?? 0) > 0) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Response Headers to Add ({(moreOpts?.response_headers_to_add || spec?.response_headers_to_add || []).length})</span>
                             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -3415,7 +3415,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {(moreOpts?.request_headers_to_remove?.length || spec?.request_headers_to_remove?.length) && (
+                        {((moreOpts?.request_headers_to_remove?.length ?? 0) > 0 || (spec?.request_headers_to_remove?.length ?? 0) > 0) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Request Headers to Remove</span>
                             <div className="flex flex-wrap gap-2">
@@ -3426,7 +3426,7 @@ export function ConfigVisualizer() {
                           </div>
                         )}
 
-                        {(moreOpts?.response_headers_to_remove?.length || spec?.response_headers_to_remove?.length) && (
+                        {((moreOpts?.response_headers_to_remove?.length ?? 0) > 0 || (spec?.response_headers_to_remove?.length ?? 0) > 0) && (
                           <div className="p-4 bg-slate-700/30 rounded-lg">
                             <span className="text-xs text-slate-500 block mb-3">Response Headers to Remove</span>
                             <div className="flex flex-wrap gap-2">
