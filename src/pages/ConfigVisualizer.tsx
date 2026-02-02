@@ -267,11 +267,13 @@ export function ConfigVisualizer() {
   };
 
   const startViewer = async () => {
-    if (!selectedNs || !selectedLb) return;
-
+    if (!selectedNs || !selectedResource) return;
     setIsLoading(true);
-    setState({
+    
+    // Reset state
+    const newState: ViewerState = {
       rootLB: null,
+      rootCDN: null,
       namespace: selectedNs,
       routes: [],
       originPools: new Map(),
@@ -280,249 +282,218 @@ export function ConfigVisualizer() {
       servicePolicies: new Map(),
       virtualSites: new Map(),
       objects: new Map(),
+      cacheRules: new Map(),
       appType: null,
       appSetting: null,
       appTypeSetting: null,
       userIdentificationPolicy: null,
-    });
+    };
 
     try {
-      log(`Fetching Load Balancer: ${selectedLb}`);
-      const lb = await apiClient.getLoadBalancer(selectedNs, selectedLb);
-      if (!lb) throw new Error('Load Balancer not found');
-      log(`Fetched ${selectedLb}`);
+      if (selectedType === 'http') {
+        // --- HTTP Load Balancer Logic ---
+        log(`Fetching HTTP LB: ${selectedResource}`);
+        const lb = await apiClient.getLoadBalancer(selectedNs, selectedResource);
+        if (!lb) throw new Error('Load Balancer not found');
+        newState.rootLB = lb;
 
-      const routes: ParsedRoute[] = [];
-      if (lb.spec?.routes) {
-        lb.spec.routes.forEach((r, i) => routes.push(parseRoute(r, i)));
-        log(`Found ${routes.length} routes`);
+        // Parse Routes
+        if (lb.spec?.routes) {
+            lb.spec.routes.forEach((r, i) => newState.routes.push(parseRoute(r, i)));
+            log(`Found ${newState.routes.length} routes`);
+        }
+        
+        // Fetch Dependencies (WAF, Pools, etc)
+        await fetchDependencies(lb, newState, selectedNs);
+
+      } else {
+        // --- CDN Load Balancer Logic ---
+        log(`Fetching CDN: ${selectedResource}`);
+        const cdn = await apiClient.getCDN(selectedNs, selectedResource);
+        if (!cdn) throw new Error('CDN not found');
+        newState.rootCDN = cdn;
+        
+        // Fetch Dependencies for CDN
+        await fetchCDNDependencies(cdn, newState, selectedNs);
       }
 
-      const originPools = new Map<string, OriginPool>();
-      const wafPolicies = new Map<string, WAFPolicy>();
-      const healthChecks = new Map<string, HealthCheck>();
-      const servicePolicies = new Map<string, unknown>();
+      setState(newState);
+      log('Report generated.');
 
-      if (lb.spec?.app_firewall && !lb.spec.disable_waf) {
-        log(`Fetching WAF: ${lb.spec.app_firewall.name}`);
-        try {
-          const waf = await apiClient.getWAFPolicy(
-            lb.spec.app_firewall.namespace || selectedNs,
-            lb.spec.app_firewall.name
-          );
-          wafPolicies.set(lb.spec.app_firewall.name, waf as WAFPolicy);
-        } catch (err) {
-          log(`Failed to fetch WAF from ${lb.spec.app_firewall.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          try {
-            const waf = await apiClient.getWAFPolicy('shared', lb.spec.app_firewall.name);
-            wafPolicies.set(lb.spec.app_firewall.name, { ...waf, shared: true } as WAFPolicy);
-          } catch (err2) {
-            log(`Failed to fetch WAF from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-          }
-        }
-      }
-
-      for (const r of routes) {
-        if (r.waf?.name && !wafPolicies.has(r.waf.name)) {
-          log(`Fetching Route WAF: ${r.waf.name}`);
-          try {
-            const waf = await apiClient.getWAFPolicy(r.waf.namespace || selectedNs, r.waf.name);
-            wafPolicies.set(r.waf.name, waf as WAFPolicy);
-          } catch (err) {
-            log(`Failed to fetch route WAF from ${r.waf.namespace || selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            try {
-              const waf = await apiClient.getWAFPolicy('shared', r.waf.name);
-              wafPolicies.set(r.waf.name, { ...waf, shared: true } as WAFPolicy);
-            } catch (err2) {
-              log(`Failed to fetch route WAF from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-            }
-          }
-        }
-      }
-
-      if (lb.spec?.active_service_policies?.policies) {
-        for (const pol of lb.spec.active_service_policies.policies) {
-          log(`Fetching Service Policy: ${pol.name}`);
-          const ns = pol.namespace || selectedNs;
-          log(`Fetching Service Policy: ${pol.name} (ns=${ns})`);
-          try {
-            const sp = await apiClient.getServicePolicy(ns, pol.name);
-            servicePolicies.set(pol.name, sp);
-          } catch (err) {
-            log(
-              `Failed to fetch service policy ${pol.name} from ${ns}: ${
-                err instanceof Error ? err.message : 'Unknown error'
-              }`
-            );
-          }
-
-        }
-      }
-
-      const poolRefs = new Set<string>();
-      if (lb.spec?.default_route_pools) {
-        lb.spec.default_route_pools.forEach(p => {
-          if (p.pool?.name) poolRefs.add(`${p.pool.namespace || selectedNs}/${p.pool.name}`);
-        });
-      }
-      routes.forEach(r => {
-        r.origins.forEach(o => {
-          if (o.name) poolRefs.add(`${o.namespace || selectedNs}/${o.name}`);
-        });
-      });
-
-      for (const ref of poolRefs) {
-        const [ns, name] = ref.split('/');
-        log(`Fetching Origin Pool: ${name}`);
-        try {
-          const pool = await apiClient.getOriginPool(ns, name);
-          originPools.set(name, pool);
-
-          if (pool.spec?.healthcheck) {
-            for (const hc of pool.spec.healthcheck) {
-              if (hc.name && !healthChecks.has(hc.name)) {
-                log(`Fetching Health Check: ${hc.name}`);
-                try {
-                  const check = await apiClient.getHealthCheck(hc.namespace || ns, hc.name);
-                  healthChecks.set(hc.name, check as HealthCheck);
-                } catch (err) {
-                  log(`Failed to fetch health check from ${hc.namespace || ns}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                  try {
-                    const check = await apiClient.getHealthCheck('shared', hc.name);
-                    healthChecks.set(hc.name, check as HealthCheck);
-                  } catch (err2) {
-                    log(`Failed to fetch health check from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-                  }
-                }
-              }
-            }
-          }
-        } catch (err) {
-          log(`Failed to fetch origin pool from ${ns}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          try {
-            const pool = await apiClient.getOriginPool('shared', name);
-            originPools.set(name, pool);
-          } catch (err2) {
-            log(`Failed to fetch origin pool from shared: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-          }
-        }
-      }
-
-      const virtualSites = new Map<string, VirtualSite>();
-      for (const pool of originPools.values()) {
-        const servers = pool.spec?.origin_servers || [];
-        for (const server of servers) {
-          const vs = server.private_ip?.site_locator?.virtual_site ||
-                    server.private_name?.site_locator?.virtual_site ||
-                    server.k8s_service?.site_locator?.virtual_site;
-          if (vs?.name && vs?.namespace && !virtualSites.has(`${vs.namespace}/${vs.name}`)) {
-            log(`Fetching Virtual Site: ${vs.namespace}/${vs.name}`);
-            try {
-              const vSite = await apiClient.getVirtualSite(vs.namespace, vs.name);
-              virtualSites.set(`${vs.namespace}/${vs.name}`, vSite);
-            } catch (err) {
-              log(`Could not fetch virtual site ${vs.namespace}/${vs.name}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
-          }
-        }
-      }
-
-      let appType: AppType | null = null;
-      let appSetting: AppSetting | null = null;
-      let appTypeSetting: AppTypeSetting | null = null;
-      const appTypeName = lb.metadata?.labels?.['ves.io/app_type'];
-      if (appTypeName) {
-        log(`Fetching App Type: ${appTypeName}`);
-        try {
-          appType = await apiClient.getAppType(appTypeName);
-        } catch (err) {
-          log(`Could not fetch app_type ${appTypeName}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-
-        log(`Fetching App Settings for namespace: ${selectedNs}`);
-        try {
-          const appSettingsResp = await apiClient.getAppSettings(selectedNs);
-          if (appSettingsResp.items?.length > 0) {
-            for (const setting of appSettingsResp.items) {
-              const spec = setting.spec || setting.get_spec;
-              const appTypeSettings = spec?.app_type_settings || [];
-              const matchingSetting = appTypeSettings.find(
-                (ats: AppTypeSetting) => ats.app_type_ref?.name === appTypeName
-              );
-              if (matchingSetting) {
-                appSetting = setting;
-                appTypeSetting = matchingSetting;
-                log(`Found matching App Setting: ${setting.metadata?.name || setting.name}`);
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          log(`Could not fetch app_settings for namespace ${selectedNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-
-        if (!appSetting) {
-          log(`Fetching App Settings from shared namespace`);
-          try {
-            const appSettingsResp = await apiClient.getAppSettings('shared');
-            if (appSettingsResp.items?.length > 0) {
-              for (const setting of appSettingsResp.items) {
-                const spec = setting.spec || setting.get_spec;
-                const appTypeSettings = spec?.app_type_settings || [];
-                const matchingSetting = appTypeSettings.find(
-                  (ats: AppTypeSetting) => ats.app_type_ref?.name === appTypeName
-                );
-                if (matchingSetting) {
-                  appSetting = setting;
-                  appTypeSetting = matchingSetting;
-                  log(`Found matching App Setting: ${setting.metadata?.name || setting.name}`);
-                  break;
-                }
-              }
-            }
-          } catch (err) {
-            log(`Could not fetch app_settings from shared namespace: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          }
-        }
-      }
-
-      let userIdentificationPolicy: UserIdentificationPolicy | null = null;
-      if (lb.spec?.user_identification?.name) {
-        const userIdName = lb.spec.user_identification.name;
-        const userIdNs = lb.spec.user_identification.namespace || selectedNs;
-        log(`Fetching User Identification Policy: ${userIdName}`);
-        try {
-          userIdentificationPolicy = await apiClient.getUserIdentificationPolicy(userIdNs, userIdName);
-        } catch (err) {
-          log(`Failed to fetch user identification policy from ${userIdNs}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          try {
-            userIdentificationPolicy = await apiClient.getUserIdentificationPolicy('shared', userIdName);
-          } catch (err2) {
-            log(`Could not fetch User Identification Policy ${userIdName}: ${err2 instanceof Error ? err2.message : 'Unknown error'}`);
-          }
-        }
-      }
-
-      log('Generating report...');
-      setState(prev => ({
-        ...prev,
-        rootLB: lb,
-        routes,
-        originPools,
-        wafPolicies,
-        healthChecks,
-        servicePolicies,
-        virtualSites,
-        appType,
-        appSetting,
-        appTypeSetting,
-        userIdentificationPolicy,
-      }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load');
+      console.error(e);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // --- HELPER FUNCTIONS ---
+
+  const fetchDependencies = async (lb: LoadBalancer, state: ViewerState, ns: string) => {
+    // 1. WAF
+    if (lb.spec?.app_firewall && !lb.spec.disable_waf) {
+        await fetchWAF(lb.spec.app_firewall.name, lb.spec.app_firewall.namespace || ns, state);
+    }
+    // Route WAFs
+    for (const r of state.routes) {
+        if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
+            await fetchWAF(r.waf.name, r.waf.namespace || ns, state);
+        }
+    }
+
+    // 2. Origin Pools (HTTP LB uses references)
+    const poolRefs = new Set<string>();
+    if (lb.spec?.default_route_pools) {
+        lb.spec.default_route_pools.forEach(p => {
+          if (p.pool?.name) poolRefs.add(`${p.pool.namespace || ns}/${p.pool.name}`);
+        });
+    }
+    state.routes.forEach(r => {
+        r.origins.forEach(o => {
+          if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
+        });
+    });
+    
+    await fetchOriginPools(poolRefs, state, ns);
+
+    // 3. Service Policies
+    if (lb.spec?.active_service_policies?.policies) {
+        for (const pol of lb.spec.active_service_policies.policies) {
+             try {
+                const sp = await apiClient.getServicePolicy(pol.namespace || ns, pol.name);
+                state.servicePolicies.set(pol.name, sp);
+             } catch(e) { console.warn(e); }
+        }
+    }
+
+    // 4. App Type / User ID
+    await fetchAppTypesAndSecurity(lb, state, ns);
+  };
+
+  const fetchCDNDependencies = async (cdn: CDNLoadBalancer, state: ViewerState, ns: string) => {
+      const spec = cdn.spec as any;
+      
+      // 1. Origin Pool: 
+      // Skip fetching external pools unless explicitly referenced. 
+      // Most CDNs use inline definitions which we handle in Render.
+
+      // 2. WAF
+      if (spec?.app_firewall) {
+          await fetchWAF(spec.app_firewall.name, spec.app_firewall.namespace || ns, state);
+      }
+
+      // 3. Cache Rules (Look in both cdn_settings and custom_cache_rule)
+      const cacheRulesList = spec?.cdn_settings?.cache_rules || spec?.custom_cache_rule?.cdn_cache_rules || [];
+      for (const ruleRef of cacheRulesList) {
+          if (ruleRef.name) {
+              log(`Fetching Cache Rule: ${ruleRef.name}`);
+              try {
+                  const rule = await apiClient.getCDNCacheRule(ruleRef.namespace || ns, ruleRef.name);
+                  state.cacheRules.set(ruleRef.name, rule);
+              } catch (e) {
+                  log(`Failed to fetch cache rule ${ruleRef.name}`);
+              }
+          }
+      }
+      
+      // 4. User Identification
+      if (spec?.user_identification) {
+          try {
+             const uid = await apiClient.getUserIdentificationPolicy(
+                 spec.user_identification.namespace || ns, 
+                 spec.user_identification.name
+             );
+             state.userIdentificationPolicy = uid;
+          } catch (e) { console.log('Failed to fetch User ID policy'); }
+      }
+  };
+
+  const fetchWAF = async (name: string, ns: string, state: ViewerState) => {
+    log(`Fetching WAF: ${name}`);
+    try {
+        const waf = await apiClient.getWAFPolicy(ns, name);
+        state.wafPolicies.set(name, waf);
+    } catch {
+        try {
+            const waf = await apiClient.getWAFPolicy('shared', name);
+            state.wafPolicies.set(name, { ...waf, shared: true } as WAFPolicy);
+        } catch { log(`Failed to fetch WAF ${name}`); }
+    }
+  };
+
+  const fetchOriginPools = async (refs: Set<string>, state: ViewerState, currentNs: string) => {
+      for (const ref of refs) {
+          const [ns, name] = ref.split('/');
+          if (state.originPools.has(name)) continue;
+          
+          log(`Fetching Pool: ${name}`);
+          try {
+              const pool = await apiClient.getOriginPool(ns, name);
+              state.originPools.set(name, pool);
+              
+              if (pool.spec?.healthcheck) {
+                  for (const hc of pool.spec.healthcheck) {
+                      if (hc.name && !state.healthChecks.has(hc.name)) {
+                          try {
+                              const check = await apiClient.getHealthCheck(hc.namespace || ns, hc.name);
+                              state.healthChecks.set(hc.name, check as HealthCheck);
+                          } catch { /* Try shared */ }
+                      }
+                  }
+              }
+          } catch {
+              try {
+                  const pool = await apiClient.getOriginPool('shared', name);
+                  state.originPools.set(name, pool);
+              } catch { log(`Failed to fetch pool ${name}`); }
+          }
+      }
+      
+      // Populate Virtual Sites from Pools
+      for (const pool of state.originPools.values()) {
+        const servers = pool.spec?.origin_servers || [];
+        for (const server of servers) {
+          const vs = server.private_ip?.site_locator?.virtual_site ||
+                     server.private_name?.site_locator?.virtual_site ||
+                     server.k8s_service?.site_locator?.virtual_site;
+          if (vs?.name && vs?.namespace && !state.virtualSites.has(`${vs.namespace}/${vs.name}`)) {
+             try {
+                 const vSite = await apiClient.getVirtualSite(vs.namespace, vs.name);
+                 state.virtualSites.set(`${vs.namespace}/${vs.name}`, vSite);
+             } catch {}
+          }
+        }
+      }
+  };
+
+  const fetchAppTypesAndSecurity = async (lb: LoadBalancer, state: ViewerState, ns: string) => {
+      const appTypeName = lb.metadata?.labels?.['ves.io/app_type'];
+      if (appTypeName) {
+        try {
+            state.appType = await apiClient.getAppType(appTypeName);
+            const appSettingsResp = await apiClient.getAppSettings(ns);
+            if (appSettingsResp.items?.length > 0) {
+                for (const setting of appSettingsResp.items) {
+                  const spec = setting.spec || setting.get_spec;
+                  const matching = spec?.app_type_settings?.find((ats: AppTypeSetting) => ats.app_type_ref?.name === appTypeName);
+                  if (matching) {
+                    state.appSetting = setting;
+                    state.appTypeSetting = matching;
+                    break;
+                  }
+                }
+            }
+        } catch {}
+      }
+      if (lb.spec?.user_identification?.name) {
+          try {
+              state.userIdentificationPolicy = await apiClient.getUserIdentificationPolicy(
+                  lb.spec.user_identification.namespace || ns, 
+                  lb.spec.user_identification.name
+              );
+          } catch {}
+      }
   };
 
   const getWafMode = (waf: WAFPolicy | null | undefined): string => {
@@ -602,6 +573,247 @@ export function ConfigVisualizer() {
       exact: { text: 'Exact Match', symbol: '=' },
     };
     return labels[match] || labels.prefix;
+  };
+
+  const renderCDNContent = () => {
+      const cdn = state.rootCDN!;
+      const spec = cdn.spec as any; 
+      
+      return (
+        <div className="space-y-6">
+            {/* 1. Header & Meta */}
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-purple-500/15 rounded-xl flex items-center justify-center text-purple-400">
+                    <Cloud className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 text-xs font-semibold rounded bg-purple-600 text-white">CDN Distribution</span>
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded ${!spec.disable ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {spec.disable ? 'Disabled' : 'Active'}
+                      </span>
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-100">{cdn.metadata?.name}</h1>
+                    <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                      <span className="flex items-center gap-1"><Home className="w-4 h-4" /> {cdn.metadata?.namespace}</span>
+                      <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Created: {formatDate(cdn.system_metadata?.creation_timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setJsonModal({ title: 'Complete CDN Configuration', data: cdn })}
+                  className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors text-sm"
+                >
+                  <Code className="w-4 h-4" /> JSON
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                 {[
+                     { label: 'Domains', value: spec?.domains?.length || 0, icon: Globe, color: 'text-blue-400' },
+                     { label: 'Cache Rules', value: (spec?.cdn_settings?.cache_rules?.length || 0) + (spec?.custom_cache_rule?.cdn_cache_rules?.length || 0), icon: HardDrive, color: 'text-amber-400' },
+                     { label: 'WAF', value: spec?.app_firewall ? 'Enabled' : 'Disabled', icon: Shield, color: spec?.app_firewall ? 'text-emerald-400' : 'text-slate-500' },
+                     { label: 'User ID', value: spec?.user_identification ? 'Enabled' : 'Disabled', icon: User, color: spec?.user_identification ? 'text-cyan-400' : 'text-slate-500' },
+                     { label: 'Bot Defense', value: !spec?.disable_bot_defense ? 'Enabled' : 'Disabled', icon: Bot, color: !spec?.disable_bot_defense ? 'text-purple-400' : 'text-slate-500' },
+                 ].map(stat => (
+                    <div key={stat.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+                        <div className={`w-7 h-7 mb-1.5 ${stat.color}`}><stat.icon className="w-full h-full" /></div>
+                        <div className="text-lg font-bold text-slate-100">{stat.value}</div>
+                        <div className="text-xs text-slate-500">{stat.label}</div>
+                    </div>
+                 ))}
+            </div>
+
+            {/* 3. Domains */}
+            {spec?.domains && (
+              <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                 <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
+                    <Globe className="w-5 h-5 text-blue-400" />
+                    <h2 className="text-lg font-semibold text-slate-100">Domains & Listeners</h2>
+                 </div>
+                 <div className="p-6">
+                     <div className="grid grid-cols-1 gap-2 mb-4">
+                        {spec.domains.map((d: string) => (
+                            <div key={d} className="p-3 bg-slate-700/30 rounded border border-slate-700/50 flex items-center justify-between">
+                                <code className="text-slate-200 text-lg">{d}</code>
+                                <a href={`https://${d}`} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-sm">
+                                  Open <ExternalLink className="w-3 h-3" />
+                                </a>
+                            </div>
+                        ))}
+                     </div>
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <DetailItem label="HTTP Port" value={spec.http?.port ? spec.http.port.toString() : 'N/A'} />
+                        <DetailItem label="HTTPS" value={spec.https_auto_cert || spec.https ? 'Enabled' : 'Disabled'} enabled={!!(spec.https || spec.https_auto_cert)} />
+                        <DetailItem label="Add Location" value={spec.add_location ? 'Enabled' : 'Disabled'} enabled={spec.add_location} />
+                        <DetailItem label="DNS Managed" value={spec.http?.dns_volterra_managed ? 'Yes' : 'No'} />
+                     </div>
+                 </div>
+              </section>
+            )}
+
+            {/* 4. Origin Configuration */}
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                 <button onClick={() => toggleSection('origins')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                     <div className="flex items-center gap-3">
+                         <Server className="w-5 h-5 text-emerald-400" />
+                         <h2 className="text-lg font-semibold text-slate-100">Origin Configuration</h2>
+                     </div>
+                     {expandedSections.has('origins') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                 </button>
+                 
+                 {expandedSections.has('origins') && spec.origin_pool && (
+                     <div className="p-6">
+                         <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 border-b border-slate-700/50 pb-4">
+                                <DetailItem label="Public Name" value={spec.origin_pool.public_name?.dns_name || 'N/A'} />
+                                <DetailItem label="Refresh Interval" value={spec.origin_pool.public_name?.refresh_interval ? `${spec.origin_pool.public_name.refresh_interval}s` : 'N/A'} />
+                                <DetailItem label="Protocol" value={spec.origin_pool.no_tls ? 'HTTP (No TLS)' : 'HTTPS (TLS)'} warning={!!spec.origin_pool.no_tls} />
+                                <DetailItem label="Timeout" value={spec.origin_pool.origin_request_timeout || 'Default'} />
+                             </div>
+                             <span className="text-xs text-slate-500 block mb-3">Origin Servers</span>
+                             <div className="space-y-2">
+                                {spec.origin_pool.origin_servers?.map((os: any, idx: number) => (
+                                    <div key={idx} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
+                                        <Server className="w-4 h-4 text-emerald-400" />
+                                        <code className="text-slate-200">{os.public_name?.dns_name || os.ip?.ip || 'Unknown'}</code>
+                                        <span className="text-xs text-slate-500">Port: {os.port}</span>
+                                    </div>
+                                ))}
+                             </div>
+                         </div>
+                     </div>
+                 )}
+            </section>
+
+            {/* 5. Caching Policies */}
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                 <button onClick={() => toggleSection('caching')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                     <div className="flex items-center gap-3">
+                         <HardDrive className="w-5 h-5 text-amber-400" />
+                         <h2 className="text-lg font-semibold text-slate-100">Caching Policies</h2>
+                     </div>
+                     {expandedSections.has('caching') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                 </button>
+
+                 {expandedSections.has('caching') && (
+                     <div className="p-6 space-y-6">
+                         {/* Default Policy */}
+                         <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                             <div className="flex items-center gap-2 mb-3">
+                                 <Settings className="w-4 h-4 text-amber-400" />
+                                 <span className="text-slate-200 font-medium">Default Caching Behavior</span>
+                             </div>
+                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                 <DetailItem label="TTL Override" value={spec.default_cache_action?.cache_ttl_override || 'N/A'} />
+                                 <DetailItem label="Max Cache Size" value={spec.cdn_settings?.max_cache_size ? `${spec.cdn_settings.max_cache_size} MB` : 'Default'} />
+                             </div>
+                         </div>
+
+                         {/* Custom Rules */}
+                         {(spec.custom_cache_rule?.cdn_cache_rules || spec.cdn_settings?.cache_rules) && (
+                             <div>
+                                 <span className="text-xs text-slate-500 block mb-3">Custom Cache Rules</span>
+                                 <div className="space-y-4">
+                                    {[...(spec.custom_cache_rule?.cdn_cache_rules || []), ...(spec.cdn_settings?.cache_rules || [])].map((ref: any, idx: number) => {
+                                        const ruleDetail = state.cacheRules.get(ref.name);
+                                        return (
+                                            <div key={idx} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">Rule {idx + 1}</span>
+                                                        <span className="text-slate-200 font-medium">{ref.name}</span>
+                                                    </div>
+                                                    {ruleDetail && (
+                                                        <button onClick={() => setJsonModal({title: `Cache Rule: ${ref.name}`, data: ruleDetail})} className="p-1 text-slate-500 hover:text-slate-300">
+                                                            <Code className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {ruleDetail ? (
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <DetailItem label="Cache TTL" value={ruleDetail.spec?.cache_rules?.eligible_for_cache?.scheme_proxy_host_uri?.cache_ttl || ruleDetail.spec?.cache_ttl || 'Default'} />
+                                                        <DetailItem label="Ignore Cookies" value={ruleDetail.spec?.cache_rules?.eligible_for_cache?.scheme_proxy_host_uri?.ignore_response_cookie ? 'Yes' : 'No'} />
+                                                    </div>
+                                                ) : <span className="text-sm text-slate-500 italic">Details not fetched</span>}
+                                            </div>
+                                        );
+                                    })}
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+                 )}
+            </section>
+
+            {/* 6. Security Configuration */}
+            <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
+                <button onClick={() => toggleSection('security')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
+                    <div className="flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-red-400" />
+                        <h2 className="text-lg font-semibold text-slate-100">Security Configuration</h2>
+                    </div>
+                    {expandedSections.has('security') ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                </button>
+                
+                {expandedSections.has('security') && (
+                    <div className="p-6 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* WAF Card */}
+                            <div className={`p-4 rounded-lg border ${spec.app_firewall ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-700/30 border-slate-700/50'}`}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <Shield className={`w-5 h-5 ${spec.app_firewall ? 'text-emerald-400' : 'text-slate-500'}`} />
+                                        <span className="font-medium text-slate-200">Web App Firewall</span>
+                                    </div>
+                                    {spec.app_firewall && <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-xs">Active</span>}
+                                </div>
+                                {spec.app_firewall ? (
+                                    <div className="text-sm">
+                                        <div className="text-slate-400">Policy: <span className="text-slate-200">{spec.app_firewall.name}</span></div>
+                                        {state.wafPolicies.get(spec.app_firewall.name) && (
+                                            <div className="text-slate-400 mt-1">
+                                                Mode: <span className="text-slate-200">{getWafMode(state.wafPolicies.get(spec.app_firewall.name))}</span>
+                                            </div>
+                                        )}
+                                        <button onClick={() => setJsonModal({title:'WAF Policy', data: state.wafPolicies.get(spec.app_firewall.name)})} className="text-xs text-blue-400 hover:underline mt-2 flex items-center gap-1">View Config <Code className="w-3 h-3"/></button>
+                                    </div>
+                                ) : <span className="text-sm text-slate-500">Not configured</span>}
+                            </div>
+
+                            {/* User ID Card */}
+                            <div className={`p-4 rounded-lg border ${spec.user_identification ? 'bg-cyan-500/5 border-cyan-500/20' : 'bg-slate-700/30 border-slate-700/50'}`}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <User className={`w-5 h-5 ${spec.user_identification ? 'text-cyan-400' : 'text-slate-500'}`} />
+                                        <span className="font-medium text-slate-200">User Identification</span>
+                                    </div>
+                                    {spec.user_identification && <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">Active</span>}
+                                </div>
+                                {spec.user_identification ? (
+                                    <div className="text-sm">
+                                        <div className="text-slate-400">Policy: <span className="text-slate-200">{spec.user_identification.name}</span></div>
+                                        <button onClick={() => setJsonModal({title:'User ID Policy', data: state.userIdentificationPolicy})} className="text-xs text-blue-400 hover:underline mt-2 flex items-center gap-1">View Config <Code className="w-3 h-3"/></button>
+                                    </div>
+                                ) : <span className="text-sm text-slate-500">Not configured</span>}
+                            </div>
+                        </div>
+
+                        {/* Other Security Flags */}
+                        <div className="pt-4 border-t border-slate-700/50 grid grid-cols-2 md:grid-cols-3 gap-3">
+                             <DetailItem label="Bot Defense" value={!spec.disable_bot_defense ? 'Enabled' : 'Disabled'} small />
+                             <DetailItem label="Rate Limiting" value={!spec.disable_rate_limit ? 'Enabled' : 'Disabled'} small />
+                             <DetailItem label="Malicious User Detection" value={!spec.disable_malicious_user_detection ? 'Enabled' : 'Disabled'} small />
+                        </div>
+                    </div>
+                )}
+            </section>
+        </div>
+      );
   };
 
   return (
