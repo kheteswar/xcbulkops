@@ -659,6 +659,7 @@ export function ConfigVisualizer() {
             )}
 
             {/* 4. Origin Configuration */}
+            {/* 4. Origin Configuration */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('origins')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
                      <div className="flex items-center gap-3">
@@ -671,12 +672,30 @@ export function ConfigVisualizer() {
                  {expandedSections.has('origins') && spec.origin_pool && (
                      <div className="p-6">
                          <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                             {/* Basic Origin Info */}
                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 border-b border-slate-700/50 pb-4">
                                 <DetailItem label="Public Name" value={spec.origin_pool.public_name?.dns_name || 'N/A'} />
                                 <DetailItem label="Refresh Interval" value={spec.origin_pool.public_name?.refresh_interval ? `${spec.origin_pool.public_name.refresh_interval}s` : 'N/A'} />
                                 <DetailItem label="Protocol" value={spec.origin_pool.no_tls ? 'HTTP (No TLS)' : 'HTTPS (TLS)'} warning={!!spec.origin_pool.no_tls} />
                                 <DetailItem label="Timeout" value={spec.origin_pool.origin_request_timeout || 'Default'} />
                              </div>
+
+                             {/* Advanced Origin Options (NEW) */}
+                             {spec.origin_pool.more_origin_options && (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 border-b border-slate-700/50 pb-4">
+                                   <DetailItem 
+                                     label="Byte Range Requests" 
+                                     value={spec.origin_pool.more_origin_options.enable_byte_range_request ? 'Enabled' : 'Disabled'} 
+                                     enabled={spec.origin_pool.more_origin_options.enable_byte_range_request}
+                                   />
+                                   <DetailItem 
+                                     label="Websocket Proxy" 
+                                     value={spec.origin_pool.more_origin_options.websocket_proxy ? 'Enabled' : 'Disabled'} 
+                                     enabled={spec.origin_pool.more_origin_options.websocket_proxy}
+                                   />
+                                </div>
+                             )}
+
                              <span className="text-xs text-slate-500 block mb-3">Origin Servers</span>
                              <div className="space-y-2">
                                 {spec.origin_pool.origin_servers?.map((os: any, idx: number) => (
@@ -692,6 +711,7 @@ export function ConfigVisualizer() {
                  )}
             </section>
 
+            {/* 5. Caching Policies */}
             {/* 5. Caching Policies */}
             <section className="bg-slate-800/50 border border-slate-700 rounded-xl">
                  <button onClick={() => toggleSection('caching')} className="w-full flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-700 hover:bg-slate-700/20">
@@ -723,6 +743,12 @@ export function ConfigVisualizer() {
                                  <div className="space-y-4">
                                     {[...(spec.custom_cache_rule?.cdn_cache_rules || []), ...(spec.cdn_settings?.cache_rules || [])].map((ref: any, idx: number) => {
                                         const ruleDetail = state.cacheRules.get(ref.name);
+                                        
+                                        // Logic to determine cache action and settings
+                                        const isBypass = ruleDetail?.spec?.cache_bypass;
+                                        const cacheConfig = ruleDetail?.spec?.eligible_for_cache?.scheme_proxy_host_uri || 
+                                                            ruleDetail?.spec?.eligible_for_cache?.scheme_proxy_host_request_uri;
+
                                         return (
                                             <div key={idx} className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
                                                 <div className="flex items-center justify-between mb-3">
@@ -736,10 +762,36 @@ export function ConfigVisualizer() {
                                                         </button>
                                                     )}
                                                 </div>
+                                                
                                                 {ruleDetail ? (
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <DetailItem label="Cache TTL" value={ruleDetail.spec?.cache_rules?.eligible_for_cache?.scheme_proxy_host_uri?.cache_ttl || ruleDetail.spec?.cache_ttl || 'Default'} />
-                                                        <DetailItem label="Ignore Cookies" value={ruleDetail.spec?.cache_rules?.eligible_for_cache?.scheme_proxy_host_uri?.ignore_response_cookie ? 'Yes' : 'No'} />
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                        <DetailItem 
+                                                            label="Action" 
+                                                            value={isBypass ? 'Bypass Cache' : 'Cache'} 
+                                                            warning={!!isBypass}
+                                                            enabled={!isBypass}
+                                                        />
+                                                        {!isBypass && cacheConfig && (
+                                                            <>
+                                                                <DetailItem 
+                                                                    label="Cache TTL" 
+                                                                    value={cacheConfig.cache_ttl || 'Default'} 
+                                                                />
+                                                                <DetailItem 
+                                                                    label="Ignore Cookies" 
+                                                                    value={cacheConfig.ignore_response_cookie ? 'Yes' : 'No'} 
+                                                                    enabled={cacheConfig.ignore_response_cookie}
+                                                                />
+                                                                <DetailItem 
+                                                                    label="Override Control" 
+                                                                    value={cacheConfig.cache_override ? 'Active' : 'Passive'} 
+                                                                    warning={cacheConfig.cache_override}
+                                                                />
+                                                            </>
+                                                        )}
+                                                        {ruleDetail.spec?.browser_ttl && (
+                                                            <DetailItem label="Browser TTL" value={`${ruleDetail.spec.browser_ttl}s`} />
+                                                        )}
                                                     </div>
                                                 ) : <span className="text-sm text-slate-500 italic">Details not fetched</span>}
                                             </div>
