@@ -1338,7 +1338,7 @@ export function ConfigVisualizer() {
                             )}
                           </div>
 
-                          {(r.headerMatchers?.length || r.queryParams?.length || r.corsPolicy || r.retries) && (
+                          {Boolean(r.headerMatchers?.length || r.queryParams?.length || r.corsPolicy || r.retries) && (
                             <div className="pt-3 border-t border-slate-700/50 grid grid-cols-2 md:grid-cols-4 gap-3">
                               {r.headerMatchers && r.headerMatchers.length > 0 && (
                                 <div>
