@@ -1110,7 +1110,7 @@ export function ConfigVisualizer() {
         </div>
       );
   };
-
+  
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
