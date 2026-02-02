@@ -2589,6 +2589,7 @@ export function ConfigVisualizer() {
                         </div>
                       </div>
                     )}
+                   {/* TRUSTED CLIENTS */}
                     {spec?.trusted_clients && spec.trusted_clients.length > 0 && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
@@ -2600,15 +2601,22 @@ export function ConfigVisualizer() {
                             <div key={i} className="px-4 py-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-3">
-                                  <code className="text-slate-200">{client.ip_prefix || `ASN: ${client.as_number}`}</code>
+                                  <code className="text-slate-200 font-bold">{client.ip_prefix || `ASN: ${client.as_number}`}</code>
                                   {client.metadata?.name && <span className="text-slate-500">({client.metadata.name})</span>}
                                 </div>
                               </div>
-                              {client.skip_processing && client.skip_processing.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {client.skip_processing.map((skip: string, j: number) => (
-                                    <span key={j} className="px-2 py-0.5 bg-teal-500/15 text-teal-400 rounded text-xs uppercase">{skip.replace(/_/g, ' ')}</span>
-                                  ))}
+                              
+                              {/* SECURITY SKIPS DISPLAY */}
+                              {(client.actions || client.skip_processing) && (
+                                <div className="mt-2">
+                                  <span className="text-xs text-slate-500 block mb-1">Security Controls Skipped:</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {(client.actions || client.skip_processing).map((skip: string, j: number) => (
+                                      <span key={j} className="px-2 py-0.5 bg-slate-800 text-teal-400 border border-teal-500/20 rounded text-[10px] uppercase font-medium tracking-wide">
+                                        {skip.replace('SKIP_PROCESSING_', '').replace(/_/g, ' ')}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
                             </div>
