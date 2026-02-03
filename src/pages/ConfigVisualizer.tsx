@@ -1515,149 +1515,180 @@ export function ConfigVisualizer() {
                   )}
 
                  {/* CUSTOM CERTIFICATES DETAILS */}
-{spec?.https && (() => {
-  const tlsConfig = spec.https;
-  const certRefs = tlsConfig.tls_certificates || 
-                   tlsConfig.tls_config?.tls_certificates ||
-                   tlsConfig.tls_cert_params?.certificates;
+                  {spec?.https && (() => {
+                    // Extract refs from all possible locations in the spec
+                    const tlsConfig = spec.https;
+                    const certRefs = tlsConfig.tls_certificates || 
+                                     tlsConfig.tls_config?.tls_certificates ||
+                                     tlsConfig.tls_cert_params?.certificates;
 
-  if (!certRefs?.length) return null;
+                    // If no certs are configured, don't render this section
+                    if (!certRefs?.length) return null;
 
-  return (
-    <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
-      <div className="flex items-center gap-3 mb-4">
-        <Lock className="w-6 h-6 text-amber-400" />
-        <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
-        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-          {certRefs.length} certificate{certRefs.length !== 1 ? 's' : ''}
-        </span>
-      </div>
-
-      <div className="space-y-4">
-        {certRefs.map((ref: any, i: number) => {
-          // 1. Get the full fetched object from state
-          const fullCert = state.certificates?.get(`${ref.namespace || state.namespace}/${ref.name}`);
-          
-          // 2. Parse the raw certificate_url using our new utility
-          const parsedDetails = fullCert ? parseCertificateUrl(fullCert.spec.certificate_url) : null;
-          
-          // 3. Fallback to API 'infos' if parsing failed (e.g. if URL is empty)
-          const apiInfo = fullCert?.spec?.infos?.[0];
-
-          return (
-            <div key={i} className="bg-slate-800/50 rounded-lg overflow-hidden border border-slate-700/30">
-              {/* Card Header */}
-              <div className="p-4 border-b border-slate-700/30 flex items-center justify-between bg-slate-800">
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-400" />
-                  <span className="text-slate-200 font-medium">
-                    {ref.name}
-                  </span>
-                  {fullCert?.metadata?.disable && (
-                    <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-[10px] uppercase font-bold">Disabled</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400 font-mono">
-                    {ref.namespace || state.namespace}
-                  </span>
-                  {fullCert && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setJsonModal({ title: `Certificate: ${ref.name}`, data: fullCert });
-                      }}
-                      className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded transition-colors"
-                    >
-                      <Code className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Body */}
-              <div className="p-4">
-                {parsedDetails ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                    {/* Primary Info: Subject & Issuer */}
-                    <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-slate-700/30">
-                      <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
-                        <span className="text-xs text-slate-500 block mb-1">Common Name (CN)</span>
-                        <div className="text-sm text-emerald-400 font-medium break-all">
-                          {parsedDetails.subject.commonName}
+                    return (
+                      <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
+                        <div className="flex items-center gap-3 mb-4">
+                          <Lock className="w-6 h-6 text-amber-400" />
+                          <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
+                          <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
+                            {certRefs.length} certificate{certRefs.length !== 1 ? 's' : ''}
+                          </span>
                         </div>
-                        {parsedDetails.subject.organization && (
-                          <div className="text-xs text-slate-400 mt-1">{parsedDetails.subject.organization}</div>
-                        )}
-                      </div>
-                      
-                      <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
-                        <span className="text-xs text-slate-500 block mb-1">Issuer</span>
-                        <div className="text-sm text-slate-300 break-all">
-                          {parsedDetails.issuer.commonName}
-                        </div>
-                        {parsedDetails.issuer.organization && (
-                          <div className="text-xs text-slate-400 mt-1">{parsedDetails.issuer.organization}</div>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Details Grid */}
-                    <DetailItem 
-                      label="Valid From" 
-                      value={parsedDetails.validFrom.toLocaleString()} 
-                      small
-                    />
-                    <DetailItem 
-                      label="Valid To" 
-                      value={parsedDetails.validTo.toLocaleString()}
-                      enabled={parsedDetails.validTo > new Date()}
-                      small
-                    />
-                    <DetailItem 
-                      label="Serial Number" 
-                      value={parsedDetails.serialNumber} 
-                      small 
-                    />
-                     <DetailItem 
-                      label="Fingerprint (SHA1)" 
-                      value={parsedDetails.fingerprint || 'N/A'} 
-                      small 
-                    />
-                    
-                    {/* SANs List */}
-                    {parsedDetails.sans.length > 0 && (
-                      <div className="col-span-1 md:col-span-2 mt-2 pt-2 border-t border-slate-700/30">
-                        <span className="text-xs text-slate-500 block mb-2">Subject Alternative Names (SANs)</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {parsedDetails.sans.map((san, k) => (
-                            <span key={k} className="px-2 py-0.5 bg-slate-700/50 border border-slate-600/50 rounded text-xs text-slate-300 font-mono">
-                              {san}
-                            </span>
-                          ))}
+                        <div className="space-y-4">
+                          {certRefs.map((ref: any, i: number) => {
+                            // 1. Lookup: Find the fetched certificate object in our state map
+                            const lookupKey = `${ref.namespace || state.namespace}/${ref.name}`;
+                            const fullCert = state.certificates?.get(lookupKey);
+                            
+                            // 2. Parse: Try to decode the raw Base64 PEM data
+                            const parsedDetails = fullCert ? parseCertificateUrl(fullCert.spec.certificate_url) : null;
+                            
+                            // 3. Fallback: Check if the API provided pre-parsed info (rare but possible)
+                            const apiInfo = fullCert?.spec?.infos?.[0];
+
+                            return (
+                              <div key={i} className="bg-slate-800/50 rounded-lg overflow-hidden border border-slate-700/30">
+                                {/* Card Header */}
+                                <div className="p-4 border-b border-slate-700/30 flex items-center justify-between bg-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <Lock className="w-4 h-4 text-amber-400" />
+                                    <span className="text-slate-200 font-medium">
+                                      {ref.name}
+                                    </span>
+                                    {fullCert?.metadata?.disable && (
+                                      <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-[10px] uppercase font-bold">Disabled</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400 font-mono">
+                                      {ref.namespace || state.namespace}
+                                    </span>
+                                    
+                                    {/* View JSON Button */}
+                                    {fullCert ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setJsonModal({ title: `Certificate: ${ref.name}`, data: fullCert });
+                                        }}
+                                        className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded transition-colors"
+                                        title="View Raw JSON"
+                                      >
+                                        <Code className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] text-red-400 italic px-2">Not Found</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Card Body */}
+                                <div className="p-4">
+                                  {parsedDetails ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                      {/* Primary Info: Subject & Issuer */}
+                                      <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-slate-700/30">
+                                        <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-1">Common Name (CN)</span>
+                                          <div className="text-sm text-emerald-400 font-medium break-all">
+                                            {parsedDetails.subject.commonName}
+                                          </div>
+                                          {parsedDetails.subject.organization && (
+                                            <div className="text-xs text-slate-400 mt-1">{parsedDetails.subject.organization}</div>
+                                          )}
+                                        </div>
+                                        
+                                        <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-1">Issuer</span>
+                                          <div className="text-sm text-slate-300 break-all line-clamp-2" title={parsedDetails.issuer.commonName}>
+                                            {parsedDetails.issuer.commonName}
+                                          </div>
+                                          {parsedDetails.issuer.organization && (
+                                            <div className="text-xs text-slate-400 mt-1">{parsedDetails.issuer.organization}</div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Details Grid */}
+                                      <DetailItem 
+                                        label="Valid From" 
+                                        value={parsedDetails.validFrom.toLocaleString()} 
+                                        small
+                                      />
+                                      <DetailItem 
+                                        label="Valid To" 
+                                        value={parsedDetails.validTo.toLocaleString()}
+                                        enabled={parsedDetails.validTo > new Date()}
+                                        warning={parsedDetails.validTo <= new Date()}
+                                        small
+                                      />
+                                      <DetailItem 
+                                        label="Serial Number" 
+                                        value={parsedDetails.serialNumber} 
+                                        small 
+                                      />
+                                      <DetailItem 
+                                        label="Signature" 
+                                        value={parsedDetails.isSelfSigned ? 'Self-Signed' : 'Signed'} 
+                                        warning={parsedDetails.isSelfSigned}
+                                        small 
+                                      />
+                                      {parsedDetails.fingerprint && (
+                                        <DetailItem 
+                                          label="Fingerprint (SHA1)" 
+                                          value={parsedDetails.fingerprint} 
+                                          small 
+                                        />
+                                      )}
+                                      
+                                      {/* Subject Alternative Names (SANs) */}
+                                      {parsedDetails.sans.length > 0 && (
+                                        <div className="col-span-1 md:col-span-2 mt-2 pt-2 border-t border-slate-700/30">
+                                          <span className="text-xs text-slate-500 block mb-2">Subject Alternative Names (SANs)</span>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {parsedDetails.sans.map((san, k) => (
+                                              <span key={k} className="px-2 py-0.5 bg-slate-700/50 border border-slate-600/50 rounded text-xs text-slate-300 font-mono">
+                                                {san}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : apiInfo ? (
+                                    /* Fallback: API Info (if parsing failed but basic info exists) */
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <DetailItem label="Common Name" value={apiInfo.common_name || 'N/A'} />
+                                      <DetailItem label="Expiry" value={apiInfo.expiry || apiInfo.not_after || 'N/A'} />
+                                      <div className="col-span-2 text-xs text-amber-500 italic mt-2">
+                                        Note: Full certificate details could not be parsed. Showing cached API summary.
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Empty State: Loading or Not Found */
+                                    <div className="text-center py-6">
+                                      {fullCert ? (
+                                        <div className="text-sm text-red-400 flex items-center justify-center gap-2">
+                                          <AlertTriangle className="w-4 h-4" />
+                                          Failed to parse certificate data
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-center gap-2 text-slate-500">
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          <span className="text-sm">Fetching certificate details...</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    )}
-                  </div>
-                ) : apiInfo ? (
-                  /* Fallback if parsing failed but API info exists */
-                  <div className="grid grid-cols-2 gap-4">
-                    <DetailItem label="Common Name" value={apiInfo.common_name} />
-                    <DetailItem label="Expiry" value={apiInfo.expiry} />
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-slate-500 text-sm italic">
-                    Certificate details could not be parsed.
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-})()}
+                    );
+                  })()}
 
                   {(() => {
                     const tlsConfig = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config || spec?.https?.tls_cert_params?.tls_config;
