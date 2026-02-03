@@ -18,7 +18,7 @@ export const parseCertificateUrl = (certUrl: string | undefined): ParsedCertific
     console.log("[CertParser] Base64 Length:", base64Data.length);
 
     // 2. Decode Base64
-    const pem = atob(base64Data);
+    const pem = atob(base64Data).trim();
     
     // DEBUG 3: Check if PEM looks correct (starts with -----BEGIN)
     console.log("[CertParser] Decoded PEM Start:", pem.substring(0, 40).replace(/\n/g, ' '));
