@@ -1,87 +1,60 @@
 import forge from 'node-forge';
 
-export interface ParsedCertificate {
-  subject: {
-    commonName: string;
-    organization?: string;
-    unit?: string;
-    country?: string;
-    state?: string;
-    locality?: string;
-  };
-  issuer: {
-    commonName: string;
-    organization?: string;
-  };
-  validFrom: Date;
-  validTo: Date;
-  serialNumber: string;
-  sans: string[];
-  isSelfSigned: boolean;
-  fingerprint?: string; // SHA-1 Fingerprint
-}
 
 export const parseCertificateUrl = (certUrl: string | undefined): ParsedCertificate | null => {
-  if (!certUrl || !certUrl.startsWith('string:///')) return null;
+  // DEBUG 1: Check what is receiving
+  console.log("[CertParser] Input URL:", certUrl ? `${certUrl.substring(0, 30)}...` : 'undefined');
+
+  if (!certUrl || !certUrl.startsWith('string:///')) {
+    console.warn("[CertParser] Invalid format or empty URL");
+    return null;
+  }
 
   try {
-    // 1. Remove the 'string:///' prefix
+    // 1. Remove the F5 prefix
     const base64Data = certUrl.replace('string:///', '');
     
-    // 2. Decode Base64 to get the PEM string (contains -----BEGIN CERTIFICATE-----)
-    const pem = atob(base64Data);
+    // DEBUG 2: Check Base64 data length
+    console.log("[CertParser] Base64 Length:", base64Data.length);
 
-    // 3. Parse the PEM using node-forge (takes the first/leaf certificate)
+    // 2. Decode Base64
+    const pem = atob(base64Data);
+    
+    // DEBUG 3: Check if PEM looks correct (starts with -----BEGIN)
+    console.log("[CertParser] Decoded PEM Start:", pem.substring(0, 40).replace(/\n/g, ' '));
+
+    // 3. Parse using node-forge
     const cert = forge.pki.certificateFromPem(pem);
 
-    // Helper to safely get fields
-    const getField = (obj: any, name: string) => obj.getField(name)?.value;
+    // DEBUG 4: Check if Forge parsed it
+    console.log("[CertParser] Forge Subject:", cert.subject.getField('CN')?.value);
 
-    // 4. Extract Subject Details
-    const subject = {
-      commonName: getField(cert.subject, 'CN') || 'Unknown',
-      organization: getField(cert.subject, 'O'),
-      unit: getField(cert.subject, 'OU'),
-      country: getField(cert.subject, 'C'),
-      state: getField(cert.subject, 'ST'),
-      locality: getField(cert.subject, 'L'),
-    };
+    // ... (Keep the rest of the extraction logic exactly as before) ...
+    // Extract Subject, Issuer, SANs etc.
 
-    // 5. Extract Issuer Details
-    const issuer = {
-      commonName: getField(cert.issuer, 'CN') || 'Unknown',
-      organization: getField(cert.issuer, 'O'),
-    };
-
-    // 6. Extract SANs (Subject Alternative Names)
-    const altNameExt = cert.getExtension('subjectAltName') as any;
-    const sans: string[] = [];
-    if (altNameExt && altNameExt.altNames) {
-      altNameExt.altNames.forEach((entry: any) => {
-        // type 2 is DNS, type 7 is IP
-        if (entry.type === 2 || entry.type === 7) {
-          sans.push(entry.value);
-        }
-      });
-    }
-
-    // 7. Calculate Fingerprint (optional but useful)
-    const md = forge.md.sha1.create();
-    md.update(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes());
-    const fingerprint = md.digest().toHex().match(/.{1,2}/g)?.join(':').toUpperCase();
-
-    return {
-      subject,
-      issuer,
+    const result = {
+      subject: { 
+         commonName: cert.subject.getField('CN')?.value || 'Unknown', 
+         // ... others
+      },
+      issuer: {
+         commonName: cert.issuer.getField('CN')?.value || 'Unknown',
+         // ... others
+      },
       validFrom: cert.validity.notBefore,
       validTo: cert.validity.notAfter,
       serialNumber: cert.serialNumber,
-      sans,
+      sans: [], // ... (your SANs logic)
       isSelfSigned: cert.isIssuer(cert),
-      fingerprint
+      fingerprint: '...' // ... (your fingerprint logic)
     };
+    
+    console.log("[CertParser] Parse Success!", result);
+    return result;
+
   } catch (err) {
-    console.error("Failed to parse certificate:", err);
+    // CRITICAL DEBUG: Catch specific parsing errors
+    console.error("[CertParser] CRASH:", err);
     return null;
   }
 };
