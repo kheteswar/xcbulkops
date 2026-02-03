@@ -385,9 +385,9 @@ export function ConfigVisualizer() {
       if (certRefs.size > 0) {
         console.log(`[Visualizer] Fetching ${certRefs.size} certificate(s)...`);
         console.log(`[Visualizer] Fetching certRefs - `+certRefs);
-        console.log(`[Visualizer] Fetching refKey- `+refKey);
         
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
+          console.log(`[Visualizer] Fetching refKey- `+refKey);
           const [certNs, certName] = refKey.split('/');
             console.log(`[Visualizer] Fetching certNs- `+certNs);
           console.log(`[Visualizer] Fetching certName- `+certName);
