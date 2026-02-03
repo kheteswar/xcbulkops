@@ -332,7 +332,9 @@ export function ConfigVisualizer() {
         }
         
         // Fetch Dependencies (WAF, Pools, etc)
-        await fetchDependencies(lb, newState, selectedNs);
+        
+        await fetchDependencies(lb, newState, selectedNs); // Ensure newState is passed here
+      setState(newState); // This finally pushes everything (including certs) to the UI
 
       } else {
         // --- CDN Load Balancer Logic ---
@@ -357,25 +359,27 @@ export function ConfigVisualizer() {
   };
 
   // --- HELPER FUNCTIONS ---
+
   const fetchDependencies = async (lb: LoadBalancer | CDNLoadBalancer, state: ViewerState, ns: string) => {
+    // Note: We use the 'state' object passed into the function to store data
     try {
-      // 1. WAF Policies
       const spec = lb.spec as any;
+      
+      // 1. WAF Policies
       if (spec?.app_firewall && !spec.disable_waf) {
         await fetchWAF(spec.app_firewall.name, spec.app_firewall.namespace || ns, state);
       }
 
-      // 2. Route WAFs (for HTTP LBs)
-      if (state.routes && state.routes.length > 0) {
-        state.routes.forEach(r => {
+      // 2. Route WAFs
+      if (state.routes) {
+        for (const r of state.routes) {
           if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
-             // Fetch in background or await if strictly needed
-             fetchWAF(r.waf.name, r.waf.namespace || ns, state); 
+            await fetchWAF(r.waf.name, r.waf.namespace || ns, state); 
           }
-        });
+        }
       }
 
-      // 3. Certificates (Custom)
+      // 3. Certificates (Custom) - FIX: Use the passed state.certificates map
       const certRefs = new Set<string>();
       const httpsConfig = spec.https || spec.https_auto_cert;
 
@@ -386,23 +390,24 @@ export function ConfigVisualizer() {
           }
         };
 
-        // Collect all cert references
         if (httpsConfig.tls_certificates) httpsConfig.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_config?.tls_certificates) httpsConfig.tls_config.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_cert_params?.certificates) httpsConfig.tls_cert_params.certificates.forEach(addCertRef);
       }
 
-      // Fetch Certificates
+      // Important: Wait for all certificate API calls to complete
       if (certRefs.size > 0) {
+        log(`Fetching ${certRefs.size} certificate(s)...`);
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
           try {
             const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
             if (res.data) {
               state.certificates.set(refKey, res.data);
+              console.log(`[Visualizer] Successfully stored cert: ${refKey}`);
             }
           } catch (e) {
-            console.warn(`Failed to fetch cert ${certName}:`, e);
+            console.warn(`[Visualizer] Failed to fetch cert ${certName}:`, e);
           }
         }));
       }
@@ -433,11 +438,11 @@ export function ConfigVisualizer() {
         }
       }
 
-      // 6. App Types
+      // 6. App Types & Security
       await fetchAppTypesAndSecurity(lb, state, ns);
 
     } catch (err) {
-      console.error("Error fetching dependencies", err);
+      console.error("[Visualizer] Error in fetchDependencies", err);
     }
   };
 
