@@ -398,7 +398,7 @@ export function ConfigVisualizer() {
 
       // FETCH CERTIFICATES: Ensure we wait for these before finishing
       if (certRefs.size > 0) {
-        log(`Fetching ${certRefs.size} certificate(s)...`);
+        console.log(`Fetching ${certRefs.size} certificate(s)...`);
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
           try {
