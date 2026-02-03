@@ -676,6 +676,29 @@ export function ConfigVisualizer() {
     else if (spec?.advertise_custom) advertiseType = 'Custom';
     else if (spec?.do_not_advertise) advertiseType = 'Not Advertised';
 
+
+    const getCertDetails = (cert: Certificate) => {
+      const info = cert.spec?.infos?.[0] || {};
+      const meta = cert.metadata;
+      const sys = cert.system_metadata;
+  
+      return {
+        name: meta.name,
+        namespace: meta.namespace,
+        commonName: info.common_name || 'N/A',
+        issuer: info.issuer || 'N/A',
+        // specific logic to handle your JSON's 'expiry' field
+        expiryDate: info.expiry || info.not_after, 
+        algorithm: info.public_key_algorithm || 'RSA',
+        sans: info.subject_alternative_names || [],
+        created: sys.creation_timestamp,
+        creator: sys.creator_id,
+        serial: info.serial_number,
+        isDisabled: meta.disable
+    };
+  };
+    
+
     // --- HELPER: Reusable WAF Detail Renderer ---
   const renderWafConfiguration = (waf: WAFPolicy | undefined) => {
     const wafSpec = waf?.spec;
