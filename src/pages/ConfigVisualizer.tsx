@@ -344,7 +344,8 @@ export function ConfigVisualizer() {
   // --- HELPER FUNCTIONS ---
 
   const fetchDependencies = async (lb: LoadBalancer, state: ViewerState, ns: string) => {
-    // DO NOT initialize a new variable here. Use 'state' passed in.
+    // CRITICAL: Removed the 'const newState = ...' line. 
+    // We update the 'state' object passed in by reference.
     try {
       const spec = lb.spec as any;
       
@@ -362,7 +363,7 @@ export function ConfigVisualizer() {
         }
       }
 
-      // 3. Certificates (Custom)
+      // 3. Certificates Logic
       const certRefs = new Set<string>();
       const httpsConfig = spec.https || spec.https_auto_cert;
 
@@ -372,27 +373,25 @@ export function ConfigVisualizer() {
             certRefs.add(`${cert.namespace || ns}/${cert.name}`);
           }
         };
-
         if (httpsConfig.tls_certificates) httpsConfig.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_config?.tls_certificates) httpsConfig.tls_config.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_cert_params?.certificates) httpsConfig.tls_cert_params.certificates.forEach(addCertRef);
       }
 
-      // Important: Wait for all certificate API calls to complete
+      // Wait for all certificates to be fetched and stored in the map
       if (certRefs.size > 0) {
-        log(`Fetching ${certRefs.size} certificate(s)...`);
+        console.log(`[Visualizer] Fetching ${certRefs.size} certificate(s)...`);
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
           try {
-            console.log(`[Visualizer] Requesting cert: ${certName}`);
             const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
             if (res.data) {
-              // Store directly in the state map passed to this function
+              // Store directly in the state map passed from startViewer
               state.certificates.set(refKey, res.data);
-              console.log(`[Visualizer] Successfully stored cert in state: ${refKey}`);
+              console.log(`[Visualizer] Successfully stored cert: ${refKey}`);
             }
           } catch (e) {
-            console.warn(`[Visualizer] Failed to fetch cert ${certName}:`, e);
+            console.error(`[Visualizer] Failed to fetch cert ${certName}:`, e);
           }
         }));
       }
@@ -413,7 +412,7 @@ export function ConfigVisualizer() {
       }
       await fetchOriginPools(poolRefs, state, ns);
 
-      // 5. Service Policies
+      // 5. Service Policies & App Types
       if (spec?.active_service_policies?.policies) {
         for (const pol of spec.active_service_policies.policies) {
            try {
@@ -422,12 +421,10 @@ export function ConfigVisualizer() {
            } catch(e) { console.warn(e); }
         }
       }
-
-      // 6. App Types
       await fetchAppTypesAndSecurity(lb, state, ns);
 
     } catch (err) {
-      console.error("[Visualizer] Error in fetchDependencies", err);
+      console.error("[Visualizer] Error in fetchDependencies:", err);
     }
   };
 
