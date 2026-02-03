@@ -307,6 +307,8 @@ export function ConfigVisualizer() {
       certificates: new Map(), // <--- Ensure this is initialized here
     };
 
+    console.log('startViewer - start');
+
     try {
       if (selectedType === 'http') {
         log(`Fetching HTTP LB: ${selectedResource}`);
@@ -318,7 +320,7 @@ export function ConfigVisualizer() {
             lb.spec.routes.forEach((r, i) => newState.routes.push(parseRoute(r, i)));
         }
         
-        // Pass the 'newState' object so dependencies are added to it
+        console.log("Pass the 'newState' object so dependencies are added to it");
         await fetchDependencies(lb, newState, selectedNs);
 
       } else {
