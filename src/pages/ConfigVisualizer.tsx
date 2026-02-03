@@ -402,7 +402,9 @@ export function ConfigVisualizer() {
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
           try {
+            console.log('before cert api');
             const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
+            console.log('after cert api');
             if (res.data) {
               // Store directly in the state map passed to this function
               state.certificates.set(refKey, res.data);
