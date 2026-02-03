@@ -1107,19 +1107,26 @@ export interface CDNCacheRule {
 }
 
 export interface Certificate {
-  metadata: Metadata;
-  system_metadata: SystemMetadata;
+  metadata: {
+    name: string;
+    namespace: string;
+    disable?: boolean;
+    description?: string;
+  };
+  system_metadata: {
+    creation_timestamp?: string;
+    creator_id?: string;
+  };
   spec: {
-    certificate_url: string; // usually "string:///<base64>"
+    certificate_url: string;
     private_key?: {
       blindfold_secret_info_internal?: any;
       clear_secret_info?: { provider?: string };
     };
-    // F5 API often populates this for valid certs
     infos?: Array<{
       common_name?: string;
       issuer?: string;
-      not_after?: string; // Expiry
+      not_after?: string;
       not_before?: string;
       serial_number?: string;
       subject_alt_names?: string[];
