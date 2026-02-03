@@ -67,6 +67,7 @@ const getFeatureDisplayName = (type: string): string => {
 interface ViewerState {
   rootLB: LoadBalancer | null;
   namespace: string;
+  certificates: Map<string, Certificate>;
   routes: ParsedRoute[];
   originPools: Map<string, OriginPool>;
   wafPolicies: Map<string, WAFPolicy>;
@@ -355,45 +356,90 @@ export function ConfigVisualizer() {
   };
 
   // --- HELPER FUNCTIONS ---
-
   const fetchDependencies = async (lb: LoadBalancer, state: ViewerState, ns: string) => {
     // 1. WAF
     if (lb.spec?.app_firewall && !lb.spec.disable_waf) {
-        await fetchWAF(lb.spec.app_firewall.name, lb.spec.app_firewall.namespace || ns, state);
+      await fetchWAF(lb.spec.app_firewall.name, lb.spec.app_firewall.namespace || ns, state);
     }
     // Route WAFs
     for (const r of state.routes) {
-        if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
-            await fetchWAF(r.waf.name, r.waf.namespace || ns, state);
-        }
+      if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
+        await fetchWAF(r.waf.name, r.waf.namespace || ns, state);
+      }
     }
 
     // 2. Origin Pools (HTTP LB uses references)
     const poolRefs = new Set<string>();
     if (lb.spec?.default_route_pools) {
-        lb.spec.default_route_pools.forEach(p => {
-          if (p.pool?.name) poolRefs.add(`${p.pool.namespace || ns}/${p.pool.name}`);
-        });
+      lb.spec.default_route_pools.forEach(p => {
+        if (p.pool?.name) poolRefs.add(`${p.pool.namespace || ns}/${p.pool.name}`);
+      });
     }
     state.routes.forEach(r => {
-        r.origins.forEach(o => {
-          if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
-        });
+      r.origins.forEach(o => {
+        if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
+      });
     });
     
     await fetchOriginPools(poolRefs, state, ns);
 
     // 3. Service Policies
     if (lb.spec?.active_service_policies?.policies) {
-        for (const pol of lb.spec.active_service_policies.policies) {
-             try {
-                const sp = await apiClient.getServicePolicy(pol.namespace || ns, pol.name);
-                state.servicePolicies.set(pol.name, sp);
-             } catch(e) { console.warn(e); }
-        }
+      for (const pol of lb.spec.active_service_policies.policies) {
+        try {
+          const sp = await apiClient.getServicePolicy(pol.namespace || ns, pol.name);
+          state.servicePolicies.set(pol.name, sp);
+        } catch(e) { console.warn(e); }
+      }
     }
 
-    // 4. App Type / User ID
+    // 4. Certificates (Custom) - NEW SECTION
+    const certRefs = new Set<string>();
+    const spec = lb.spec as any;
+    
+    // Check both HTTPS and Auto Cert sections
+    const httpsConfig = spec.https || spec.https_auto_cert;
+
+    if (httpsConfig) {
+      const addCertRef = (cert: { name: string; namespace?: string }) => {
+        if (cert?.name) {
+          certRefs.add(`${cert.namespace || ns}/${cert.name}`);
+        }
+      };
+
+      // 1. Direct tls_certificates (legacy)
+      if (httpsConfig.tls_certificates) {
+        httpsConfig.tls_certificates.forEach(addCertRef);
+      }
+
+      // 2. Nested in tls_config (common in auto_cert)
+      if (httpsConfig.tls_config?.tls_certificates) {
+        httpsConfig.tls_config.tls_certificates.forEach(addCertRef);
+      }
+
+      // 3. Nested in tls_cert_params (common in custom certs)
+      if (httpsConfig.tls_cert_params?.certificates) {
+        httpsConfig.tls_cert_params.certificates.forEach(addCertRef);
+      }
+    }
+
+    // Fetch all identified certificates
+    const certPromises = Array.from(certRefs).map(async (refKey) => {
+      const [certNs, certName] = refKey.split('/');
+      try {
+        // Using generic get call for the Certificate API
+        const response = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
+        if (response.data) {
+          state.certificates.set(refKey, response.data);
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch certificate: ${certName}`, e);
+      }
+    });
+
+    await Promise.all(certPromises);
+
+    // 5. App Type / User ID
     await fetchAppTypesAndSecurity(lb, state, ns);
   };
 
@@ -1474,14 +1520,14 @@ export function ConfigVisualizer() {
                     </div>
                   )}
 
-                  {/* CUSTOM CERTIFICATES DETAILS - STRICT CHECK: Only if https is present */}
+                  {/* CUSTOM CERTIFICATES DETAILS */}
                   {spec?.https && (() => {
                     const tlsConfig = spec.https;
-                    const certs = tlsConfig.tls_certificates || 
-                                  tlsConfig.tls_config?.tls_certificates ||
-                                  tlsConfig.tls_cert_params?.certificates;
+                    const certRefs = tlsConfig.tls_certificates || 
+                                     tlsConfig.tls_config?.tls_certificates ||
+                                     tlsConfig.tls_cert_params?.certificates;
 
-                    if (!certs?.length) return null;
+                    if (!certRefs?.length) return null;
 
                     return (
                       <div className="p-5 bg-slate-700/30 rounded-xl border border-slate-700/50">
@@ -1489,51 +1535,110 @@ export function ConfigVisualizer() {
                           <Lock className="w-6 h-6 text-amber-400" />
                           <h3 className="text-lg font-semibold text-slate-200">TLS Certificates</h3>
                           <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                            {certs.length} certificate{certs.length !== 1 ? 's' : ''}
+                            {certRefs.length} certificate{certRefs.length !== 1 ? 's' : ''}
                           </span>
                         </div>
+
                         <div className="space-y-4">
-                          {certs.map((cert: any, i: number) => {
-                            const certInfo = cert.certificate_url ? formatCertificateUrl(cert.certificate_url) : null;
+                          {certRefs.map((ref: any, i: number) => {
+                            // 1. Look up the full fetched object from state
+                            const fullCert = state.certificates.get(`${ref.namespace || state.namespace}/${ref.name}`);
+                            const certMeta = fullCert?.metadata;
+                            const certSys = fullCert?.system_metadata;
+                            const certSpec = fullCert?.spec;
+                            
+                            // 2. Try to get parsed info from F5 'infos' field
+                            const certInfo = certSpec?.infos?.[0];
+
                             return (
-                              <div key={i} className="p-4 bg-slate-800/50 rounded-lg">
-                                <div className="flex items-center justify-between mb-3">
+                              <div key={i} className="bg-slate-800/50 rounded-lg overflow-hidden border border-slate-700/30">
+                                {/* Card Header */}
+                                <div className="p-4 border-b border-slate-700/30 flex items-center justify-between bg-slate-800">
                                   <div className="flex items-center gap-2">
                                     <Lock className="w-4 h-4 text-amber-400" />
                                     <span className="text-slate-200 font-medium">
-                                      {cert.name || `Certificate ${i + 1}`}
+                                      {ref.name}
                                     </span>
-                                    {cert.kind && (
-                                        <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">{cert.kind}</span>
+                                    {certMeta?.disable && (
+                                      <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-[10px] uppercase">Disabled</span>
                                     )}
-                                    {certInfo && (
-                                      <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                                        {certInfo.type}
-                                      </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400 font-mono">
+                                      {ref.namespace || state.namespace}
+                                    </span>
+                                    {fullCert && (
+                                      <button
+                                        onClick={() => setJsonModal({ title: `Certificate: ${ref.name}`, data: fullCert })}
+                                        className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
+                                      >
+                                        <Code className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
                                   </div>
                                 </div>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                  {(cert.namespace || cert.tenant) && (
+
+                                {/* Card Body */}
+                                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                  
+                                  {/* Section A: Parsed X.509 Details (if available via API) */}
+                                  {certInfo ? (
                                     <>
-                                        <DetailItem label="Namespace" value={cert.namespace || state.namespace} small />
-                                        <DetailItem label="Tenant" value={cert.tenant} small />
+                                      <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-slate-700/30 mb-2">
+                                        <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-1">Common Name (CN)</span>
+                                          <div className="text-sm text-emerald-400 font-medium break-all">
+                                            {certInfo.common_name || 'N/A'}
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="bg-slate-900/40 p-3 rounded border border-slate-700/50">
+                                          <span className="text-xs text-slate-500 block mb-1">Issuer</span>
+                                          <div className="text-sm text-slate-300 break-all">
+                                            {certInfo.issuer || 'N/A'}
+                                          </div>
+                                        </div>
+
+                                        <DetailItem 
+                                          label="Expiration" 
+                                          value={certInfo.not_after ? formatDate(certInfo.not_after) : 'N/A'}
+                                          enabled={certInfo.not_after ? new Date(certInfo.not_after) > new Date() : false}
+                                          warning={false}
+                                        />
+                                        <DetailItem 
+                                          label="Serial Number" 
+                                          value={certInfo.serial_number || 'N/A'} 
+                                          small 
+                                        />
+                                      </div>
                                     </>
+                                  ) : (
+                                    /* Fallback if 'infos' is empty (common in some states) */
+                                    <div className="col-span-1 md:col-span-2 pb-4 border-b border-slate-700/30 mb-2">
+                                      <div className="flex items-center gap-2 text-amber-500/70 text-sm italic">
+                                        <AlertTriangle className="w-4 h-4" />
+                                        <span>Detailed X.509 info not parsed by API</span>
+                                      </div>
+                                    </div>
                                   )}
-                                  {cert.description && (
-                                    <DetailItem label="Description" value={cert.description} small />
+
+                                  {/* Section B: Metadata & Config */}
+                                  <DetailItem label="Created At" value={formatDate(certSys?.creation_timestamp)} small />
+                                  <DetailItem label="Creator" value={certSys?.creator_id || 'System'} small />
+                                  
+                                  {certSpec?.private_key && (
+                                    <DetailItem 
+                                      label="Private Key" 
+                                      value={certSpec.private_key.blindfold_secret_info_internal ? 'Blindfolded' : 'Clear/Ref'} 
+                                      small 
+                                    />
                                   )}
-                                  {certInfo && (
-                                    <DetailItem label="Location" value={certInfo.location.length > 40 ? certInfo.location.substring(0, 40) + '...' : certInfo.location} small />
-                                  )}
-                                  {cert.private_key?.blindfold_secret_info && (
-                                    <DetailItem label="Private Key" value="Blindfolded" small />
-                                  )}
-                                  {cert.private_key?.clear_secret_info && (
-                                    <DetailItem label="Private Key" value={cert.private_key.clear_secret_info.provider || 'Clear'} small />
-                                  )}
-                                  {cert.custom_hash_algorithms && cert.custom_hash_algorithms.length > 0 && (
-                                    <DetailItem label="Hash Algorithms" value={cert.custom_hash_algorithms.join(', ')} small />
+                                  
+                                  {ref.description && (
+                                    <div className="col-span-1 md:col-span-2">
+                                      <span className="text-xs text-slate-500 block mb-1">Description</span>
+                                      <span className="text-sm text-slate-400 italic">{ref.description}</span>
+                                    </div>
                                   )}
                                 </div>
                               </div>
