@@ -1135,3 +1135,13 @@ export interface Certificate {
     }>;
   };
 }
+
+export interface ParsedCertificate {
+  subject: string;
+  issuer: string;
+  validFrom: Date;
+  validTo: Date;
+  serialNumber: string;
+  sans: string[];
+  isSelfSigned: boolean;
+}
