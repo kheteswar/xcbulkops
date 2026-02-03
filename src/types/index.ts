@@ -1136,12 +1136,22 @@ export interface Certificate {
   };
 }
 
+export interface ParsedCertificateSubject {
+  commonName: string;
+  organization?: string;
+  organizationalUnit?: string;
+  country?: string;
+  state?: string;
+  locality?: string;
+}
+
 export interface ParsedCertificate {
-  subject: string;
-  issuer: string;
+  subject: ParsedCertificateSubject;
+  issuer: ParsedCertificateSubject;
   validFrom: Date;
   validTo: Date;
   serialNumber: string;
   sans: string[];
   isSelfSigned: boolean;
+  fingerprint?: string;
 }
