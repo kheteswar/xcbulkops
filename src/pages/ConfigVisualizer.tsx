@@ -308,6 +308,7 @@ export function ConfigVisualizer() {
     };
 
     console.log('startViewer - start');
+    console.log('selectedType:'+selectedType);
 
     try {
       if (selectedType === 'http') {
