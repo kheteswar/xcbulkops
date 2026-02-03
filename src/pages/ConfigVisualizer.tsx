@@ -1535,7 +1535,7 @@ export function ConfigVisualizer() {
                     </div>
                   )}
 
-                  {/* CUSTOM CERTIFICATES DETAILS */}
+                  {/* CUSTOM CERTIFICATES DETAILS */
                   {spec?.https && (() => {
                     const tlsConfig = spec.https;
                     const certRefs = tlsConfig.tls_certificates || 
