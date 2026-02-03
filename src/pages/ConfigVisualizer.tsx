@@ -46,7 +46,7 @@ import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
 import type { Namespace, LoadBalancer, CDNLoadBalancer, CDNCacheRule, ParsedRoute, OriginPool, WAFPolicy, HealthCheck, ServicePolicy, ServicePolicyRule, AppType, AppSetting, AppTypeSetting, VirtualSite, UserIdentificationPolicy } from '../types';
-import { parseCertificateUrl } from '../utils/certParser';
+import { parseCertificateUrl } from 'utils/certParser';
 
 
 function isDefined<T>(v: T | null | undefined): v is T {
