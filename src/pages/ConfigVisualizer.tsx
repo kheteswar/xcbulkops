@@ -1516,13 +1516,11 @@ export function ConfigVisualizer() {
 
                  {/* CUSTOM CERTIFICATES DETAILS */}
                   {spec?.https && (() => {
-                    // Extract refs from all possible locations in the spec
                     const tlsConfig = spec.https;
                     const certRefs = tlsConfig.tls_certificates || 
                                      tlsConfig.tls_config?.tls_certificates ||
                                      tlsConfig.tls_cert_params?.certificates;
 
-                    // If no certs are configured, don't render this section
                     if (!certRefs?.length) return null;
 
                     return (
@@ -1537,14 +1535,23 @@ export function ConfigVisualizer() {
 
                         <div className="space-y-4">
                           {certRefs.map((ref: any, i: number) => {
-                            // 1. Lookup: Find the fetched certificate object in our state map
+                            // 1. Lookup the fetched certificate object from state
                             const lookupKey = `${ref.namespace || state.namespace}/${ref.name}`;
                             const fullCert = state.certificates?.get(lookupKey);
                             
-                            // 2. Parse: Try to decode the raw Base64 PEM data
-                            const parsedDetails = fullCert ? parseCertificateUrl(fullCert.spec.certificate_url) : null;
+                            // DEBUG LOG: Verify we found the cert object
+                            console.log(`[Visualizer] Looking for cert: ${lookupKey}`, { 
+                                found: !!fullCert, 
+                                urlLength: fullCert?.spec?.certificate_url?.length || 0 
+                            });
+
+                            // 2. Parse the raw certificate_url using our new utility
+                            // Ensure fullCert and spec.certificate_url exist before calling
+                            const parsedDetails = (fullCert && fullCert.spec?.certificate_url) 
+                                ? parseCertificateUrl(fullCert.spec.certificate_url) 
+                                : null;
                             
-                            // 3. Fallback: Check if the API provided pre-parsed info (rare but possible)
+                            // 3. Fallback to API 'infos' if parsing failed or data missing
                             const apiInfo = fullCert?.spec?.infos?.[0];
 
                             return (
@@ -1564,21 +1571,17 @@ export function ConfigVisualizer() {
                                     <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400 font-mono">
                                       {ref.namespace || state.namespace}
                                     </span>
-                                    
-                                    {/* View JSON Button */}
-                                    {fullCert ? (
+                                    {fullCert && (
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setJsonModal({ title: `Certificate: ${ref.name}`, data: fullCert });
                                         }}
                                         className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-slate-700 rounded transition-colors"
-                                        title="View Raw JSON"
+                                        title="View JSON"
                                       >
                                         <Code className="w-3.5 h-3.5" />
                                       </button>
-                                    ) : (
-                                      <span className="text-[10px] text-red-400 italic px-2">Not Found</span>
                                     )}
                                   </div>
                                 </div>
@@ -1666,12 +1669,12 @@ export function ConfigVisualizer() {
                                       </div>
                                     </div>
                                   ) : (
-                                    /* Empty State: Loading or Not Found */
+                                    /* Empty State */
                                     <div className="text-center py-6">
                                       {fullCert ? (
                                         <div className="text-sm text-red-400 flex items-center justify-center gap-2">
                                           <AlertTriangle className="w-4 h-4" />
-                                          Failed to parse certificate data
+                                          <span>Failed to parse certificate data</span>
                                         </div>
                                       ) : (
                                         <div className="flex items-center justify-center gap-2 text-slate-500">
