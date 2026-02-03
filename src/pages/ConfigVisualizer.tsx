@@ -392,19 +392,7 @@ export function ConfigVisualizer() {
             console.log(`[Visualizer] Fetching certNs- `+certNs);
           console.log(`[Visualizer] Fetching certName- `+certName);
           
-          try {
-            const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
-
-            const certData = res?.spec ? res : res?.data;
-
-            if (certData?.spec?.certificate_url) {
-              state.certificates.set(refKey, certData);
-            }
-
-            }
-          } catch (e) {
-            console.error(`[Visualizer] Failed to fetch cert ${certName}:`, e);
-          }
+          
         }));
       }
 
