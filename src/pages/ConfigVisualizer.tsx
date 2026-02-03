@@ -386,12 +386,18 @@ export function ConfigVisualizer() {
         console.log(`[Visualizer] Fetching ${certRefs.size} certificate(s)...`);
         console.log(`[Visualizer] Fetching certRefs - `+certRefs);
         
-        await Promise.all(Array.from(certRefs).map(async (refKey) => {
-          console.log(`[Visualizer] Fetching refKey- `+refKey);
+          await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
-            console.log(`[Visualizer] Fetching certNs- `+certNs);
-          console.log(`[Visualizer] Fetching certName- `+certName);
           
+
+          const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
+
+          // The API returns the certificate object directly, not wrapped in .data
+          const certData = res?.spec ? res : res?.data;
+          
+          if (certData?.spec?.certificate_url) {
+            state.certificates.set(refKey, certData);
+          }
           
         }));
       }
