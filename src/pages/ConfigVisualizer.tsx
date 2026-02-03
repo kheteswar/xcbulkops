@@ -1551,6 +1551,8 @@ export function ConfigVisualizer() {
                             // 1. Lookup the fetched certificate object from state
                             const lookupKey = `${ref.namespace || state.namespace}/${ref.name}`;
                             const fullCert = state.certificates?.get(lookupKey);
+
+                            console.log('fullCert:'+fullCert);
                             
                             // DEBUG LOG: Verify we found the cert object
                             console.log(`[Visualizer] Looking for cert: ${lookupKey}`, { 
