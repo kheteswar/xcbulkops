@@ -285,20 +285,9 @@ export function ConfigVisualizer() {
     if (!selectedNs || !selectedResource) return;
     setIsLoading(true);
 
-    // NEW: Force all sections to expand when loading a new resource
-    setExpandedSections(new Set([
-      'routes', 
-      'origins', 
-      'security', 
-      'tls', 
-      'caching', 
-      'apptype',
-      'advanced',
-      'features',
-      'domains'
-    ]));
+    setExpandedSections(new Set(['routes', 'origins', 'security', 'tls', 'caching', 'apptype', 'advanced', 'features', 'domains']));
     
-    // Reset state
+    // CRITICAL: Initialize the new state object with the certificates map
     const newState: ViewerState = {
       rootLB: null,
       rootCDN: null,
@@ -315,39 +304,32 @@ export function ConfigVisualizer() {
       appSetting: null,
       appTypeSetting: null,
       userIdentificationPolicy: null,
-      certificates: new Map(),
+      certificates: new Map(), // <--- Ensure this is initialized here
     };
 
     try {
       if (selectedType === 'http') {
-        // --- HTTP Load Balancer Logic ---
         log(`Fetching HTTP LB: ${selectedResource}`);
         const lb = await apiClient.getLoadBalancer(selectedNs, selectedResource);
         if (!lb) throw new Error('Load Balancer not found');
         newState.rootLB = lb;
 
-        // Parse Routes
         if (lb.spec?.routes) {
             lb.spec.routes.forEach((r, i) => newState.routes.push(parseRoute(r, i)));
-            log(`Found ${newState.routes.length} routes`);
         }
         
-        // Fetch Dependencies (WAF, Pools, etc)
-        
-        await fetchDependencies(lb, newState, selectedNs); // Ensure newState is passed here
-      setState(newState); // This finally pushes everything (including certs) to the UI
+        // Pass the 'newState' object so dependencies are added to it
+        await fetchDependencies(lb, newState, selectedNs);
 
       } else {
-        // --- CDN Load Balancer Logic ---
         log(`Fetching CDN: ${selectedResource}`);
         const cdn = await apiClient.getCDN(selectedNs, selectedResource);
         if (!cdn) throw new Error('CDN not found');
         newState.rootCDN = cdn;
-        
-        // Fetch Dependencies for CDN
         await fetchCDNDependencies(cdn, newState, selectedNs);
       }
 
+      // Update the component state with the populated newState object
       setState(newState);
       log('Report generated.');
 
