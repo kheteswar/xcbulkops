@@ -127,6 +127,7 @@ export function ConfigVisualizer() {
     appSetting: null,
     appTypeSetting: null,
     userIdentificationPolicy: null,
+    certificates: new Map(),
   });
 
   const [jsonModal, setJsonModal] = useState<{ title: string; data: unknown } | null>(null);
@@ -356,33 +357,23 @@ export function ConfigVisualizer() {
   };
 
   // --- HELPER FUNCTIONS ---
-  const fetchDependencies = async (lb: LoadBalancer | CDNLoadBalancer, ns: string) => {
-    // 1. Initialize State (CRITICAL FIX: Added certificates map here)
-    const newState: ViewerState = {
-      rootLB: lb,
-      routes: [],
-      wafPolicies: new Map(),
-      originPools: new Map(),
-      healthChecks: new Map(),
-      servicePolicies: new Map(),
-      appType: null,
-      appSetting: null,
-      appTypeSetting: null,
-      virtualSites: new Map(),
-      userIdentificationPolicy: null,
-      certificates: new Map(), // <--- THIS WAS MISSING AND CAUSING THE CRASH
-      error: null,
-      namespace: ns
-    };
-
+  const fetchDependencies = async (lb: LoadBalancer | CDNLoadBalancer, state: ViewerState, ns: string) => {
     try {
-      // 2. WAF Policies
+      // 1. WAF Policies
       const spec = lb.spec as any;
       if (spec?.app_firewall && !spec.disable_waf) {
-        await fetchWAF(spec.app_firewall.name, spec.app_firewall.namespace || ns, newState);
+        await fetchWAF(spec.app_firewall.name, spec.app_firewall.namespace || ns, state);
       }
 
-      // 3. Certificates (Custom) - NEW LOGIC
+      // 2. Route WAFs (for HTTP LBs)
+      state.routes.forEach(r => {
+        if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
+           // We don't await here to run in parallel, or we can collect promises
+           fetchWAF(r.waf.name, r.waf.namespace || ns, state); 
+        }
+      });
+
+      // 3. Certificates (Custom)
       const certRefs = new Set<string>();
       const httpsConfig = spec.https || spec.https_auto_cert;
 
@@ -393,7 +384,7 @@ export function ConfigVisualizer() {
           }
         };
 
-        // Collect all cert references from 3 possible locations
+        // Collect all cert references
         if (httpsConfig.tls_certificates) httpsConfig.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_config?.tls_certificates) httpsConfig.tls_config.tls_certificates.forEach(addCertRef);
         if (httpsConfig.tls_cert_params?.certificates) httpsConfig.tls_cert_params.certificates.forEach(addCertRef);
@@ -405,7 +396,7 @@ export function ConfigVisualizer() {
         try {
           const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
           if (res.data) {
-            newState.certificates.set(refKey, res.data);
+            state.certificates.set(refKey, res.data);
           }
         } catch (e) {
           console.warn(`Failed to fetch cert ${certName}:`, e);
@@ -413,34 +404,35 @@ export function ConfigVisualizer() {
       }));
 
       // 4. Origin Pools
-      // ... (Your existing pool logic here) ...
-      // If you need me to paste the full pool logic again, let me know, 
-      // otherwise ensure your existing logic uses 'newState' not 'state'
-
-      // For safety, here is the minimal needed for pools if you copy-paste this block:
       const poolRefs = new Set<string>();
-      // (Add your existing pool collection logic here)
-      await fetchOriginPools(poolRefs, newState, ns);
+      if (spec?.default_route_pools) {
+        spec.default_route_pools.forEach((p: any) => {
+          if (p.pool?.name) poolRefs.add(`${p.pool.namespace || ns}/${p.pool.name}`);
+        });
+      }
+      state.routes.forEach(r => {
+        r.origins.forEach(o => {
+          if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
+        });
+      });
+      await fetchOriginPools(poolRefs, state, ns);
 
       // 5. Service Policies
       if (spec?.active_service_policies?.policies) {
         for (const pol of spec.active_service_policies.policies) {
            try {
              const sp = await apiClient.getServicePolicy(pol.namespace || ns, pol.name);
-             newState.servicePolicies.set(pol.name, sp);
+             state.servicePolicies.set(pol.name, sp);
            } catch(e) { console.warn(e); }
         }
       }
 
       // 6. App Types
-      await fetchAppTypesAndSecurity(lb, newState, ns);
+      await fetchAppTypesAndSecurity(lb, state, ns);
 
     } catch (err) {
       console.error("Error fetching dependencies", err);
     }
-
-    // Update the UI state
-    setViewerState(newState);
   };
 
   const fetchCDNDependencies = async (cdn: CDNLoadBalancer, state: ViewerState, ns: string) => {
