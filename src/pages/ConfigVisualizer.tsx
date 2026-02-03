@@ -1542,7 +1542,7 @@ export function ConfigVisualizer() {
                         <div className="space-y-4">
                           {certRefs.map((ref: any, i: number) => {
                             // 1. Look up the full fetched object from state
-                            const fullCert = state.certificates.get(`${ref.namespace || state.namespace}/${ref.name}`);
+                            const fullCert = state.certificates?.get(`${ref.namespace || state.namespace}/${ref.name}`);
                             const certMeta = fullCert?.metadata;
                             const certSys = fullCert?.system_metadata;
                             const certSpec = fullCert?.spec;
