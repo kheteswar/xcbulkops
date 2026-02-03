@@ -384,6 +384,8 @@ export function ConfigVisualizer() {
       // Wait for all certificates to be fetched and stored in the map
       if (certRefs.size > 0) {
         console.log(`[Visualizer] Fetching ${certRefs.size} certificate(s)...`);
+        console.log(`[Visualizer] Fetching -  ${certRefs}`);
+        
         await Promise.all(Array.from(certRefs).map(async (refKey) => {
           const [certNs, certName] = refKey.split('/');
           try {
