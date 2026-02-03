@@ -394,12 +394,13 @@ export function ConfigVisualizer() {
           
           try {
             const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
-            console.log(`[Visualizer] Fetching res- `+res);
-            console.log(`[Visualizer] Fetching res data- `+res.data);
-            if (res.data) {
-              // Store directly in the state map passed from startViewer
-              state.certificates.set(refKey, res.data);
-              console.log(`[Visualizer] Successfully stored cert: ${refKey}`);
+
+            const certData = res?.spec ? res : res?.data;
+
+            if (certData?.spec?.certificate_url) {
+              state.certificates.set(refKey, certData);
+            }
+
             }
           } catch (e) {
             console.error(`[Visualizer] Failed to fetch cert ${certName}:`, e);
