@@ -1123,13 +1123,15 @@ export interface Certificate {
       blindfold_secret_info_internal?: any;
       clear_secret_info?: { provider?: string };
     };
+    // Updated to match your JSON structure
     infos?: Array<{
       common_name?: string;
       issuer?: string;
-      not_after?: string;
-      not_before?: string;
+      expiry?: string;    // <--- Found in your JSON
+      not_after?: string; // Legacy/Alt field
       serial_number?: string;
-      subject_alt_names?: string[];
+      subject_alternative_names?: string[]; // <--- Found in your JSON
+      public_key_algorithm?: string;
     }>;
   };
 }
