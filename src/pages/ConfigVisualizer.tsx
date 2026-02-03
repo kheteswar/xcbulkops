@@ -366,12 +366,14 @@ export function ConfigVisualizer() {
       }
 
       // 2. Route WAFs (for HTTP LBs)
-      state.routes.forEach(r => {
-        if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
-           // We don't await here to run in parallel, or we can collect promises
-           fetchWAF(r.waf.name, r.waf.namespace || ns, state); 
-        }
-      });
+      if (state.routes && state.routes.length > 0) {
+        state.routes.forEach(r => {
+          if (r.waf?.name && !state.wafPolicies.has(r.waf.name)) {
+             // Fetch in background or await if strictly needed
+             fetchWAF(r.waf.name, r.waf.namespace || ns, state); 
+          }
+        });
+      }
 
       // 3. Certificates (Custom)
       const certRefs = new Set<string>();
@@ -391,17 +393,19 @@ export function ConfigVisualizer() {
       }
 
       // Fetch Certificates
-      await Promise.all(Array.from(certRefs).map(async (refKey) => {
-        const [certNs, certName] = refKey.split('/');
-        try {
-          const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
-          if (res.data) {
-            state.certificates.set(refKey, res.data);
+      if (certRefs.size > 0) {
+        await Promise.all(Array.from(certRefs).map(async (refKey) => {
+          const [certNs, certName] = refKey.split('/');
+          try {
+            const res = await apiClient.get(`/api/config/namespaces/${certNs}/certificates/${certName}`);
+            if (res.data) {
+              state.certificates.set(refKey, res.data);
+            }
+          } catch (e) {
+            console.warn(`Failed to fetch cert ${certName}:`, e);
           }
-        } catch (e) {
-          console.warn(`Failed to fetch cert ${certName}:`, e);
-        }
-      }));
+        }));
+      }
 
       // 4. Origin Pools
       const poolRefs = new Set<string>();
@@ -410,11 +414,13 @@ export function ConfigVisualizer() {
           if (p.pool?.name) poolRefs.add(`${p.pool.namespace || ns}/${p.pool.name}`);
         });
       }
-      state.routes.forEach(r => {
-        r.origins.forEach(o => {
-          if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
+      if (state.routes) {
+        state.routes.forEach(r => {
+          r.origins.forEach(o => {
+            if (o.name) poolRefs.add(`${o.namespace || ns}/${o.name}`);
+          });
         });
-      });
+      }
       await fetchOriginPools(poolRefs, state, ns);
 
       // 5. Service Policies
