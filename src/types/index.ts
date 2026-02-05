@@ -1155,3 +1155,227 @@ export interface ParsedCertificate {
   isSelfSigned: boolean;
   fingerprint?: string;
 }
+
+// --- Alert Receiver & Policy Types ---
+
+export interface AlertReceiver {
+  name?: string;
+  namespace?: string;
+  metadata?: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    description?: string;
+    disable?: boolean;
+  };
+  system_metadata?: {
+    uid?: string;
+    creation_timestamp?: string;
+    modification_timestamp?: string;
+    creator_id?: string;
+    tenant?: string;
+  };
+  spec?: AlertReceiverSpec;
+  get_spec?: AlertReceiverSpec;
+}
+
+export interface AlertReceiverSpec {
+  // Receiver type - one of these will be set
+  slack?: {
+    url?: {
+      blindfold_secret_info?: {
+        location?: string;
+        decryption_provider?: string;
+      };
+      clear_secret_info?: {
+        url?: string;
+        provider?: string;
+      };
+      vault_secret_info?: unknown;
+      wingman_secret_info?: unknown;
+    };
+    channel?: string;
+  };
+  pagerduty?: {
+    url?: {
+      blindfold_secret_info?: {
+        location?: string;
+        decryption_provider?: string;
+      };
+      clear_secret_info?: {
+        url?: string;
+        provider?: string;
+      };
+    };
+    routing_key?: {
+      blindfold_secret_info?: {
+        location?: string;
+        decryption_provider?: string;
+      };
+      clear_secret_info?: {
+        url?: string;
+        provider?: string;
+      };
+    };
+  };
+  opsgenie?: {
+    url?: {
+      blindfold_secret_info?: unknown;
+      clear_secret_info?: unknown;
+    };
+    api_key?: {
+      blindfold_secret_info?: unknown;
+      clear_secret_info?: unknown;
+    };
+  };
+  email?: {
+    email?: string;
+  };
+  sms?: {
+    contact_number?: string;
+  };
+  webhook?: {
+    webhook_url?: {
+      blindfold_secret_info?: {
+        location?: string;
+        decryption_provider?: string;
+      };
+      clear_secret_info?: {
+        url?: string;
+        provider?: string;
+      };
+    };
+    http_configuration?: {
+      no_authentication?: unknown;
+      basic_authentication?: {
+        user_name?: string;
+        password?: {
+          blindfold_secret_info?: unknown;
+          clear_secret_info?: unknown;
+        };
+      };
+      bearer_token?: {
+        token?: {
+          blindfold_secret_info?: unknown;
+          clear_secret_info?: unknown;
+        };
+      };
+    };
+  };
+  none?: unknown;
+}
+
+export interface AlertPolicy {
+  name?: string;
+  namespace?: string;
+  metadata?: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    description?: string;
+    disable?: boolean;
+  };
+  system_metadata?: {
+    uid?: string;
+    creation_timestamp?: string;
+    modification_timestamp?: string;
+    creator_id?: string;
+    tenant?: string;
+  };
+  spec?: AlertPolicySpec;
+  get_spec?: AlertPolicySpec;
+}
+
+export interface AlertPolicySpec {
+  receivers?: Array<{
+    name?: string;
+    namespace?: string;
+  }>;
+  notification_parameters?: {
+    group_wait?: string;
+    group_interval?: string;
+    repeat_interval?: string;
+  };
+  notification_grouping?: {
+    group_by?: string[];
+    group_by_alert_fields?: unknown;
+    group_by_labels?: unknown;
+  };
+  routes?: AlertPolicyRoute[];
+}
+
+export interface AlertPolicyRoute {
+  match?: {
+    any?: unknown;
+    all_alerts?: unknown;
+    custom_alert_criteria?: {
+      alert_name?: {
+        exact_values?: string[];
+        regex_values?: string[];
+      };
+      group_name?: {
+        exact_values?: string[];
+        regex_values?: string[];
+      };
+      severity?: {
+        severities?: string[];
+      };
+      additional_label_matchers?: Array<{
+        label_name?: string;
+        label_values?: {
+          exact_values?: string[];
+          regex_values?: string[];
+        };
+      }>;
+    };
+  };
+  action?: {
+    send?: unknown;
+    drop?: unknown;
+  };
+  receivers?: Array<{
+    name?: string;
+    namespace?: string;
+  }>;
+  notification_parameters?: {
+    group_wait?: string;
+    group_interval?: string;
+    repeat_interval?: string;
+  };
+  notification_grouping?: {
+    group_by?: string[];
+    group_by_alert_fields?: unknown;
+    group_by_labels?: unknown;
+  };
+}
+
+// --- Config Object Types for Copy Config Tool ---
+
+export type ConfigObjectType = 'alert_receiver' | 'alert_policy';
+
+export interface ConfigObjectInfo {
+  type: ConfigObjectType;
+  name: string;
+  displayName: string;
+  apiPath: string;
+  apiPathPlural: string;
+}
+
+export const CONFIG_OBJECT_TYPES: Record<ConfigObjectType, ConfigObjectInfo> = {
+  alert_receiver: {
+    type: 'alert_receiver',
+    name: 'alert_receiver',
+    displayName: 'Alert Receiver',
+    apiPath: 'alert_receivers',
+    apiPathPlural: 'alert_receivers',
+  },
+  alert_policy: {
+    type: 'alert_policy',
+    name: 'alert_policy',
+    displayName: 'Alert Policy',
+    apiPath: 'alert_policys',
+    apiPathPlural: 'alert_policys',
+  },
+};
