@@ -1,4 +1,4 @@
-import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy } from '../types';
+import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy, AlertReceiver, AlertPolicy, CDNLoadBalancer, CDNCacheRule } from '../types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -56,8 +56,46 @@ class F5XCApiClient {
     return data as T;
   }
 
+  // Static method for cross-tenant requests (doesn't use instance tenant/token)
+  static async proxyRequestStatic<T>(
+    tenant: string,
+    apiToken: string,
+    endpoint: string,
+    method = 'GET',
+    body?: unknown
+  ): Promise<T> {
+    const proxyUrl = `${SUPABASE_URL}/functions/v1/f5xc-proxy`;
+
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        tenant,
+        token: apiToken,
+        endpoint,
+        method,
+        body,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || data.message || `API Error: ${response.status}`);
+    }
+
+    return data as T;
+  }
+
   async get<T>(path: string): Promise<T> {
     return this.proxyRequest<T>(path, 'GET');
+  }
+
+  async post<T>(path: string, body: unknown): Promise<T> {
+    return this.proxyRequest<T>(path, 'POST', body);
   }
 
   async getNamespaces(): Promise<{ items: Namespace[] }> {
@@ -145,9 +183,36 @@ class F5XCApiClient {
   async getCDNCacheRule(namespace: string, name: string): Promise<CDNCacheRule> {
     return this.get(`/api/config/namespaces/${namespace}/cdn_cache_rules/${name}`);
   }
+
+  // --- Alert Receiver APIs ---
+  async getAlertReceivers(namespace: string): Promise<{ items: AlertReceiver[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/alert_receivers`);
+  }
+
+  async getAlertReceiver(namespace: string, name: string): Promise<AlertReceiver> {
+    return this.get(`/api/config/namespaces/${namespace}/alert_receivers/${name}`);
+  }
+
+  async createAlertReceiver(namespace: string, body: unknown): Promise<AlertReceiver> {
+    return this.post(`/api/config/namespaces/${namespace}/alert_receivers`, body);
+  }
+
+  // --- Alert Policy APIs ---
+  async getAlertPolicies(namespace: string): Promise<{ items: AlertPolicy[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/alert_policys`);
+  }
+
+  async getAlertPolicy(namespace: string, name: string): Promise<AlertPolicy> {
+    return this.get(`/api/config/namespaces/${namespace}/alert_policys/${name}`);
+  }
+
+  async createAlertPolicy(namespace: string, body: unknown): Promise<AlertPolicy> {
+    return this.post(`/api/config/namespaces/${namespace}/alert_policys`, body);
+  }
   
 }
 
+export { F5XCApiClient };
 export const apiClient = new F5XCApiClient();
 
 const STORAGE_KEY = 'xc_bulkops_credentials';
