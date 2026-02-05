@@ -5,6 +5,7 @@ import { Header } from './components/Header';
 import { Home } from './pages/Home';
 import { WAFScanner } from './pages/WAFScanner';
 import { ConfigVisualizer } from './pages/ConfigVisualizer';
+import { CopyConfig } from './pages/CopyConfig';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
               />
               <Route path="/waf-scanner" element={<WAFScanner />} />
               <Route path="/config-visualizer" element={<ConfigVisualizer />} />
+              <Route path="/copy-config" element={<CopyConfig />} />
             </Routes>
           </div>
         </ToastProvider>
