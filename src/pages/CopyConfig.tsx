@@ -75,6 +75,7 @@ export function CopyConfig() {
   const [objectsToPreview, setObjectsToPreview] = useState<SelectedObject[]>([]);
   const [expandedPreview, setExpandedPreview] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [copyResults, setCopyResults] = useState<CopyResult[]>([]);
 
   // JSON Modal
@@ -178,27 +179,45 @@ export function CopyConfig() {
   };
 
   const preparePreview = async () => {
+    setIsLoadingPreview(true);
     const previews: SelectedObject[] = [];
 
+    // Fetch full details for each selected object
+    // The list API often returns minimal data, we need to GET each object individually
     for (const name of selectedObjects) {
-      const obj = availableObjects.find(o => o.name === name);
-      if (obj) {
+      try {
+        let fullData: AlertReceiver | AlertPolicy;
+        
+        if (selectedObjectType === 'alert_receiver') {
+          fullData = await apiClient.getAlertReceiver(selectedSourceNs, name);
+        } else {
+          fullData = await apiClient.getAlertPolicy(selectedSourceNs, name);
+        }
+        
+        console.log(`[CopyConfig] Fetched full details for ${name}:`, JSON.stringify(fullData, null, 2));
+        
         previews.push({
           type: selectedObjectType,
           name,
           namespace: selectedSourceNs,
-          data: obj.data as AlertReceiver | AlertPolicy,
+          data: fullData,
         });
+      } catch (err) {
+        console.error(`[CopyConfig] Failed to fetch details for ${name}:`, err);
+        toast.error(`Failed to fetch details for ${name}`);
       }
     }
 
     setObjectsToPreview(previews);
+    setIsLoadingPreview(false);
     setStep(3);
   };
 
-  const prepareCreatePayload = (original: AlertReceiver | AlertPolicy, destNamespace: string): unknown => {
+  const prepareCreatePayload = (original: AlertReceiver | AlertPolicy, destNamespace: string, destTenantName?: string): unknown => {
     // Deep clone the original object
     const source: Record<string, unknown> = JSON.parse(JSON.stringify(original));
+
+    console.log('[CopyConfig] Original source object:', JSON.stringify(source, null, 2));
 
     // F5 XC API expects a specific structure for POST requests:
     // { metadata: { name, namespace, ... }, spec: { ... } }
@@ -206,8 +225,11 @@ export function CopyConfig() {
     // Extract the name - could be in metadata.name or at root level
     const objectName = (source.metadata as Record<string, unknown>)?.name || source.name;
     
-    // Extract the spec - could be in 'spec' or 'get_spec'
-    const spec = source.spec || source.get_spec || {};
+    // CRITICAL: F5 XC list API returns spec in 'get_spec', not 'spec'
+    // We need to prioritize get_spec over spec
+    const spec = source.get_spec || source.spec || {};
+    
+    console.log('[CopyConfig] Extracted spec:', JSON.stringify(spec, null, 2));
     
     // Extract description and labels from metadata or root
     const sourceMetadata = (source.metadata || {}) as Record<string, unknown>;
@@ -228,32 +250,49 @@ export function CopyConfig() {
     if (annotations && Object.keys(annotations as object).length > 0) metadata.annotations = annotations;
     if (disable) metadata.disable = disable;
 
-    // Clean up the spec - remove any system-generated fields that might have leaked in
-    const cleanSpec = { ...(spec as Record<string, unknown>) };
+    // Deep clone the spec to avoid mutations
+    const cleanSpec: Record<string, unknown> = JSON.parse(JSON.stringify(spec));
+    
+    // For alert receivers, clean up receiver-specific fields
+    if (selectedObjectType === 'alert_receiver') {
+      // Alert receivers don't need namespace updates in spec, just copy as-is
+      // But remove any tenant references that might cause issues
+      // The spec structure varies by receiver type (slack, pagerduty, email, etc.)
+    }
     
     // For alert policies, update receiver references to point to destination namespace
     if (selectedObjectType === 'alert_policy') {
       // Update top-level receiver references
       if (cleanSpec.receivers && Array.isArray(cleanSpec.receivers)) {
-        cleanSpec.receivers = (cleanSpec.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
-          name: r.name,
-          namespace: destNamespace, // Update to destination namespace
-        }));
+        cleanSpec.receivers = (cleanSpec.receivers as Array<Record<string, unknown>>).map(r => {
+          // Keep only name and namespace, remove tenant/kind which are read-only
+          return {
+            name: r.name,
+            namespace: destNamespace,
+          };
+        });
       }
 
-      // Update route receiver references
+      // Update routes - preserve ALL route fields, just update receiver namespaces
       if (cleanSpec.routes && Array.isArray(cleanSpec.routes)) {
         cleanSpec.routes = (cleanSpec.routes as Array<Record<string, unknown>>).map(route => {
-          const cleanRoute = { ...route };
+          const cleanRoute: Record<string, unknown> = { ...route };
+          
+          // Update receivers in the route if present
           if (cleanRoute.receivers && Array.isArray(cleanRoute.receivers)) {
-            cleanRoute.receivers = (cleanRoute.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
+            cleanRoute.receivers = (cleanRoute.receivers as Array<Record<string, unknown>>).map(r => ({
               name: r.name,
               namespace: destNamespace,
             }));
           }
+          
           return cleanRoute;
         });
       }
+      
+      // Copy notification_parameters if present
+      // Copy notification_grouping if present
+      // These are already in cleanSpec from the deep clone
     }
 
     // Build the final payload in the format F5 XC API expects
@@ -262,7 +301,7 @@ export function CopyConfig() {
       spec: cleanSpec,
     };
 
-    console.log('[CopyConfig] Prepared payload:', JSON.stringify(payload, null, 2));
+    console.log('[CopyConfig] Final prepared payload:', JSON.stringify(payload, null, 2));
 
     return payload;
   };
@@ -773,11 +812,20 @@ export function CopyConfig() {
               </button>
               <button
                 onClick={preparePreview}
-                disabled={selectedObjects.length === 0}
+                disabled={selectedObjects.length === 0 || isLoadingPreview}
                 className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
               >
-                Preview Changes
-                <ChevronRight className="w-5 h-5" />
+                {isLoadingPreview ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Loading Details...
+                  </>
+                ) : (
+                  <>
+                    Preview Changes
+                    <ChevronRight className="w-5 h-5" />
+                  </>
+                )}
               </button>
             </div>
           </div>
