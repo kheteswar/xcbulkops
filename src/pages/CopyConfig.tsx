@@ -197,62 +197,72 @@ export function CopyConfig() {
   };
 
   const prepareCreatePayload = (original: AlertReceiver | AlertPolicy, destNamespace: string): unknown => {
-    // Deep clone and remove system-generated fields
-    const payload: Record<string, unknown> = JSON.parse(JSON.stringify(original));
+    // Deep clone the original object
+    const source: Record<string, unknown> = JSON.parse(JSON.stringify(original));
 
-    // Remove system metadata
-    delete payload.system_metadata;
-    delete payload.status;
-    delete payload.resource_version;
+    // F5 XC API expects a specific structure for POST requests:
+    // { metadata: { name, namespace, ... }, spec: { ... } }
+    
+    // Extract the name - could be in metadata.name or at root level
+    const objectName = (source.metadata as Record<string, unknown>)?.name || source.name;
+    
+    // Extract the spec - could be in 'spec' or 'get_spec'
+    const spec = source.spec || source.get_spec || {};
+    
+    // Extract description and labels from metadata or root
+    const sourceMetadata = (source.metadata || {}) as Record<string, unknown>;
+    const description = sourceMetadata.description || source.description || '';
+    const labels = sourceMetadata.labels || source.labels || {};
+    const annotations = sourceMetadata.annotations || source.annotations || {};
+    const disable = sourceMetadata.disable || source.disabled || false;
 
-    // Update metadata for destination
-    if (payload.metadata && typeof payload.metadata === 'object') {
-      const meta = payload.metadata as Record<string, unknown>;
-      meta.namespace = destNamespace;
-      // Remove fields that shouldn't be copied
-      delete meta.uid;
-      delete meta.creation_timestamp;
-      delete meta.modification_timestamp;
-      delete meta.creator_id;
-      delete meta.creator_class;
-      delete meta.modifier_id;
-      delete meta.modifier_class;
-      delete meta.initializers;
-      delete meta.finalizers;
-      delete meta.object_index;
-    }
+    // Build clean metadata for the create request
+    const metadata: Record<string, unknown> = {
+      name: objectName,
+      namespace: destNamespace,
+    };
 
-    // If get_spec exists, use it as spec and remove get_spec
-    if (payload.get_spec && !payload.spec) {
-      payload.spec = payload.get_spec;
-    }
-    delete payload.get_spec;
+    // Only add optional fields if they have values
+    if (description) metadata.description = description;
+    if (labels && Object.keys(labels as object).length > 0) metadata.labels = labels;
+    if (annotations && Object.keys(annotations as object).length > 0) metadata.annotations = annotations;
+    if (disable) metadata.disable = disable;
 
-    // For alert policies, we need to handle receiver references
-    if (selectedObjectType === 'alert_policy' && payload.spec) {
-      const spec = payload.spec as Record<string, unknown>;
-      
-      // Update receiver references to point to destination namespace
-      if (spec.receivers && Array.isArray(spec.receivers)) {
-        spec.receivers = (spec.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
-          ...r,
+    // Clean up the spec - remove any system-generated fields that might have leaked in
+    const cleanSpec = { ...(spec as Record<string, unknown>) };
+    
+    // For alert policies, update receiver references to point to destination namespace
+    if (selectedObjectType === 'alert_policy') {
+      // Update top-level receiver references
+      if (cleanSpec.receivers && Array.isArray(cleanSpec.receivers)) {
+        cleanSpec.receivers = (cleanSpec.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
+          name: r.name,
           namespace: destNamespace, // Update to destination namespace
         }));
       }
 
       // Update route receiver references
-      if (spec.routes && Array.isArray(spec.routes)) {
-        spec.routes = (spec.routes as Array<Record<string, unknown>>).map(route => {
-          if (route.receivers && Array.isArray(route.receivers)) {
-            route.receivers = (route.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
-              ...r,
+      if (cleanSpec.routes && Array.isArray(cleanSpec.routes)) {
+        cleanSpec.routes = (cleanSpec.routes as Array<Record<string, unknown>>).map(route => {
+          const cleanRoute = { ...route };
+          if (cleanRoute.receivers && Array.isArray(cleanRoute.receivers)) {
+            cleanRoute.receivers = (cleanRoute.receivers as Array<{ name?: string; namespace?: string }>).map(r => ({
+              name: r.name,
               namespace: destNamespace,
             }));
           }
-          return route;
+          return cleanRoute;
         });
       }
     }
+
+    // Build the final payload in the format F5 XC API expects
+    const payload: Record<string, unknown> = {
+      metadata,
+      spec: cleanSpec,
+    };
+
+    console.log('[CopyConfig] Prepared payload:', JSON.stringify(payload, null, 2));
 
     return payload;
   };
