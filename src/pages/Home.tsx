@@ -16,6 +16,7 @@ import {
   Activity,
   Lock,
   ChevronRight,
+  Copy,
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
@@ -44,6 +45,18 @@ const tools = [
       { label: 'Read-Only', type: 'safe' as const },
     ],
     badge: 'Start Here',
+    featured: true,
+  },
+  {
+    name: 'Copy Config',
+    description: 'Copy configuration objects across tenants or namespaces. Supports Alert Receivers and Policies.',
+    icon: Copy,
+    to: '/copy-config',
+    tags: [
+      { label: 'Create', type: 'create' as const },
+      { label: 'Cross-Tenant', type: 'update' as const },
+    ],
+    badge: 'New',
     featured: true,
   },
   {
